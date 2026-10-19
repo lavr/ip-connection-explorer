@@ -29,6 +29,8 @@ jobs:
           install-go: false
       - name: Test
         run: go test -race ./...
+      - name: Load test (open-loop generator, 10k events/s)
+        run: IPCX_LOAD=1 go test -count=1 -run TestPipelineSustainsRate -v ./internal/collector/
       - name: Cross build
         run: make cross
 

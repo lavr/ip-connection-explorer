@@ -3,7 +3,7 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 GOBUILD := CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)"
 
-.PHONY: build cross test vet lint integration test-linux integration-build integration-docker
+.PHONY: build cross test load vet lint integration test-linux integration-build integration-docker
 
 build:
 	$(GOBUILD) -o bin/ipcx ./cmd/ipcx
@@ -14,6 +14,9 @@ cross:
 
 test:
 	go test -race ./...
+
+load:
+	IPCX_LOAD=1 go test -count=1 -run TestPipelineSustainsRate -v ./internal/collector/
 
 vet:
 	go vet ./...
