@@ -429,13 +429,12 @@ skip. The job logs `uname -r` and the runner image version.
 - On push and pull request: `go vet`, `staticcheck`, unit and pipeline tests with `-race`, build
   for `linux/amd64` and `linux/arm64`.
 - Integration job on `ubuntu-24.04` (pinned, not `ubuntu-latest`).
-- Releases: on every push to `main`, release-please maintains a release pull request with the
-  next version and `CHANGELOG.md`. Merging it creates the tag and the GitHub release; a second
-  job runs the tests, builds a snapshot with GoReleaser and smoke tests it (`--version`, `merge`,
-  `report` on a small fixture, archive and checksum checks), and only then uploads
-  `ipcx_<version>_linux_<arch>.tar.gz` (binary, README, LICENSE) and `checksums.txt` to the
-  release. arm64 is checked for build, archive and checksum only and is not claimed as runtime
-  tested.
+- Releases: `release.sh` tags `main` with a plain `X.Y.Z` tag and pushes it. The tag runs the
+  test workflow again, then GoReleaser builds a snapshot that is smoke tested (`--version`,
+  `merge`, `report` on a small fixture, archive and checksum checks) and only then publishes
+  `ipcx_<version>_linux_<arch>.tar.gz` (binary, README, LICENSE), `checksums.txt` and GitHub
+  generated release notes. arm64 is checked for build, archive and checksum only and is not
+  claimed as runtime tested.
 
 ### Manual
 
