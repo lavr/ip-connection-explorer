@@ -182,6 +182,14 @@ make integration-docker # namespace integration test in a privileged container
 make integration        # the same on a Linux host, with sudo
 ```
 
+### Releases
+
+Releases are automatic. Commit messages follow
+[Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, ...).
+On every push to `main`, release-please updates a release pull request with the next version
+and `CHANGELOG.md`. Merging that pull request tags the release, and GoReleaser builds and
+attaches the `linux/amd64` and `linux/arm64` archives and `checksums.txt`.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
