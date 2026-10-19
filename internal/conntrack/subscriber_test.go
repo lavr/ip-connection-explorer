@@ -22,11 +22,10 @@ var errFakeClosed = errors.New("fake: socket closed")
 
 // fakeLib mimics ti-mo/conntrack: unbuffered error channel, blocking sends, Close waits for the worker.
 type fakeLib struct {
-	mu      sync.Mutex
-	closed  bool
-	wg      sync.WaitGroup
-	gen     func(i int) (ct.Event, error)
-	release chan struct{}
+	mu     sync.Mutex
+	closed bool
+	wg     sync.WaitGroup
+	gen    func(i int) (ct.Event, error)
 }
 
 func (f *fakeLib) Listen(evChan chan<- ct.Event, n uint8, _ []netfilter.NetlinkGroup) (chan error, error) {

@@ -35,24 +35,36 @@ jobs:
           go-version-file: go.mod
       - name: Test
         run: go test -race ./...
+      # Build and smoke test before anything is uploaded, so a broken build never reaches
+      # the release. The release itself already exists (created by release-please).
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - name: Smoke test the build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir smoke
+          tar -xzf dist/ipcx_*_linux_amd64.tar.gz -C smoke
+          ./smoke/ipcx --version
+          ./smoke/ipcx merge testdata/a.json.gz testdata/b.json.gz -o /tmp/m.json.gz
+          ./smoke/ipcx report /tmp/m.json.gz --format csv > /tmp/report.csv
+          head -1 /tmp/report.csv | grep -q '^role_status,'
+          ls dist/ipcx_*_linux_arm64.tar.gz
+          (cd dist && sha256sum --check --ignore-missing checksums.txt)
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Smoke test the amd64 archive
+      - name: Check the published build
+        shell: bash
         env:
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          set -eu
-          mkdir smoke
-          tar -xzf dist/ipcx_*_linux_amd64.tar.gz -C smoke
+          set -euo pipefail
+          tar -xzf dist/ipcx_*_linux_amd64.tar.gz -C smoke ipcx
           ./smoke/ipcx --version | grep -F "${TAG#v}"
-          ./smoke/ipcx merge testdata/a.json.gz testdata/b.json.gz -o /tmp/m.json.gz
-          ./smoke/ipcx report /tmp/m.json.gz --format csv | head -1 | grep -q '^role_status,'
-      - name: Check the arm64 archive and checksums
-        run: |
-          set -eu
-          ls dist/ipcx_*_linux_arm64.tar.gz
-          cd dist && sha256sum --check --ignore-missing checksums.txt
+          (cd dist && sha256sum --check --ignore-missing checksums.txt)

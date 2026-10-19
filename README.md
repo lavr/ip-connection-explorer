@@ -31,7 +31,8 @@ few minutes. Design details: [docs/design.md](docs/design.md).
 
 ## Install
 
-Download the archive for your architecture from the releases page, check it and unpack:
+Download the archive for your architecture from the
+[releases page](https://github.com/lavr/ip-connection-explorer/releases), check it and unpack:
 
 ```sh
 sha256sum --check --ignore-missing checksums.txt
@@ -39,8 +40,9 @@ tar -xzf ipcx_<version>_linux_amd64.tar.gz
 sudo install -m 0755 ipcx /usr/local/bin/ipcx
 ```
 
-The binary is static and has no runtime dependencies. `merge` and `report` also run on macOS
-if you build from source (`make build`); `collect` needs Linux.
+The binary is static and has no runtime dependencies. To build from source you need Go 1.24 or
+newer and `make`: `make build` produces `bin/ipcx`. `merge` and `report` also run on macOS;
+`collect` needs Linux.
 
 ## Quick start
 
@@ -63,7 +65,8 @@ ok    sock_diag        376 sockets
 ok    proc_fd          41 processes with sockets
 ```
 
-`collect` stops after `--duration` or on SIGTERM and writes a final checkpoint
+The state directory is created if it does not exist. `collect` stops after `--duration` or on
+SIGTERM or SIGINT and writes a final checkpoint
 `<hostname>-<run_id>.json.gz` into the state directory. Copy the files to one place and:
 
 ```sh
@@ -72,6 +75,9 @@ ipcx report all.json.gz --format csv > dependencies.csv
 ```
 
 Run a week rather than a day: weekly jobs and backups are exactly what a short window misses.
+
+Checkpoints and raw journals contain host names, machine IDs, addresses and process names.
+Remove or replace them before attaching a file to a public issue.
 
 ### Example systemd unit
 
@@ -103,8 +109,13 @@ the report.
 Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` preflight failed,
 `4` state directory locked by another collector.
 
-`--raw` also keeps a rotated journal of events and dump markers (`raw-<run_id>-*.jsonl.gz`,
-32 MiB per file, 256 MiB in total) for later analysis.
+`--raw` also keeps a rotated journal of events and dump markers for later analysis:
+`raw-<run_id>-*.jsonl.gz` plus `raw-<run_id>.json` with the retained time span. The limits of
+32 MiB per file and 256 MiB per run are counted before compression and enforced when a file is
+rotated; journals of earlier runs are not removed.
+
+`report` defaults: `--format csv`, `--role all`, `--min-confidence low`, hidden rows off. The JSON
+format applies the same filters.
 
 ## Report columns
 
@@ -128,14 +139,15 @@ dependency usually appears twice: outbound on the client, inbound on the server.
 | `ever_reply_seen` | a reply was seen at least once |
 | `coverage_status` | `complete`; `incomplete` (a gap, events disabled, or the run had not finished); `truncated` (a limit was hit); `incomplete+truncated` |
 
-Loopback, forwarded and unresolved (NAT) rows are hidden unless `--include-hidden` is given.
+Loopback and link-local, forwarded and unresolved (NAT) rows are hidden unless
+`--include-hidden` is given.
 `report` prints a summary to stderr with what was hidden and which runs are incomplete.
 
 ## Confidence and evidence
 
 | Evidence | Meaning |
 |---|---|
-| `conntrack_new` | the first SYN of a TCP connection was observed live |
+| `conntrack_new` | a live conntrack NEW event in TCP state `SYN_SENT` |
 | `conntrack_original` | the connection was already open, or the start was not observed; the original direction is assumed |
 | `listen` | a listening socket on the service side confirms it |
 | `listen_contradicts` | the supposed client side listens on that port: role is `conflict` |
@@ -160,7 +172,9 @@ correct. Review the table before you send it anywhere.
 - **IPv6 wildcard listeners** (`[::]:port`) may or may not accept IPv4; for IPv4 traffic they
   add `listen` evidence but never raise confidence.
 - **Current network namespace only.** Containers in their own namespaces are not observed.
-- **Crash window.** Data after the last checkpoint is lost if the host crashes.
+- **Crash window.** Periodic checkpoints limit what a crash loses: data after the last
+  checkpoint is gone. The checkpoint file is synced before it replaces the previous one, but
+  the directory is not, so on power loss the newest replacement may not survive.
 - **`--go-memory-limit`** is a soft target for the Go garbage collector, not a cap on memory.
   The hard bounds are `--max-active` (which also caps tombstones of closed flows),
   `--max-known` and `--max-unknown`; when one is hit the report says `truncated`.
@@ -170,9 +184,9 @@ correct. Review the table before you send it anywhere.
 
 - Linux 7.2 (integration tests in a privileged container: network namespaces, nftables,
   IPv4 and IPv6).
-- GitHub `ubuntu-24.04` runners in CI.
 
-Older kernels, including 5.4, are expected to work but are not listed until tested.
+CI runs the same integration test on GitHub `ubuntu-24.04` runners. Older kernels, including
+5.4, are expected to work but are not listed until tested.
 
 ## Development
 

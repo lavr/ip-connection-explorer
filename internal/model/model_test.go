@@ -117,8 +117,9 @@ func TestDependencyJSONRoundtrip(t *testing.T) {
 func TestDepKeyStringStable(t *testing.T) {
 	k := DepKey{Scope: "global", Family: 4, Proto: ProtoTCP, Status: RoleKnown,
 		Initiator: netip.MustParseAddr("192.0.2.10"), Service: netip.MustParseAddr("198.51.100.5"), ServicePort: 443}
-	if k.String() != k.String() || k.String() == "" {
-		t.Fatal()
+	copyOfK := k
+	if k.String() != copyOfK.String() || k.String() == "" {
+		t.Fatal("equal keys render differently")
 	}
 	k2 := k
 	k2.ServicePort = 80

@@ -1,6 +1,6 @@
 # ipcx design
 
-Status: draft v1, 2026-10-19.
+Status: v1 design, 2026-10-19; updated after review.
 
 ## Purpose
 
@@ -358,7 +358,9 @@ coverage_status
 
 ### JSON
 
-Everything, including coverage, examples and per-observer observations.
+The same rows as the CSV after the same filters (`--role`, `--min-confidence`, hidden rows),
+with every field, examples and per-observer data, plus the coverage of every input run. Use
+`--role all --min-confidence low --include-hidden` to get everything.
 
 ### Summary
 
@@ -427,10 +429,13 @@ skip. The job logs `uname -r` and the runner image version.
 - On push and pull request: `go vet`, `staticcheck`, unit and pipeline tests with `-race`, build
   for `linux/amd64` and `linux/arm64`.
 - Integration job on `ubuntu-24.04` (pinned, not `ubuntu-latest`).
-- On tag `v*`: GoReleaser builds `ipcx_<version>_linux_<arch>.tar.gz` (binary, README, LICENSE)
-  and `checksums.txt`. A smoke step unpacks the amd64 archive and runs `--version`, `merge` and
-  `report` on a small fixture. arm64 is checked for build, archive and checksum only and is not
-  claimed as runtime tested.
+- Releases: on every push to `main`, release-please maintains a release pull request with the
+  next version and `CHANGELOG.md`. Merging it creates the tag and the GitHub release; a second
+  job runs the tests, builds a snapshot with GoReleaser and smoke tests it (`--version`, `merge`,
+  `report` on a small fixture, archive and checksum checks), and only then uploads
+  `ipcx_<version>_linux_<arch>.tar.gz` (binary, README, LICENSE) and `checksums.txt` to the
+  release. arm64 is checked for build, archive and checksum only and is not claimed as runtime
+  tested.
 
 ### Manual
 
