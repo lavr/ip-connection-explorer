@@ -35,16 +35,28 @@ func classifyTCP(f CTFlow, ev FlowEvidence, li *ListenIndex, addrs AddrSet, host
 		inf.Evidence = []model.Evidence{model.EvidenceConntrackOriginal}
 		inf.Confidence = model.ConfidenceMedium
 	}
-	dstListen := addrs.Has(o.Dst.Addr) && li.Match(model.ProtoTCP, o.Dst, now, host.ListenMaxAge)
-	srcListen := addrs.Has(o.Src.Addr) && li.Match(model.ProtoTCP, o.Src, now, host.ListenMaxAge)
+	if ev.SawSimultaneousOpen || (f.HasTCPState && f.TCPState == model.CTSynSent2) {
+		inf.Status = model.RoleConflict
+		inf.Confidence = model.ConfidenceLow
+		return inf
+	}
+	dst, src := MatchNone, MatchNone
+	if addrs.Has(o.Dst.Addr) {
+		dst = li.Match(model.ProtoTCP, o.Dst, now, host.ListenMaxAge)
+	}
+	if addrs.Has(o.Src.Addr) {
+		src = li.Match(model.ProtoTCP, o.Src, now, host.ListenMaxAge)
+	}
 	switch {
-	case srcListen:
+	case src == MatchExact:
 		inf.Status = model.RoleConflict
 		inf.Evidence = append(inf.Evidence, model.EvidenceListenContradicts)
 		inf.Confidence = model.ConfidenceLow
-	case dstListen:
+	case dst == MatchExact:
 		inf.Evidence = append(inf.Evidence, model.EvidenceListen)
 		inf.Confidence = model.ConfidenceHigh
+	case dst == MatchAssumed:
+		inf.Evidence = append(inf.Evidence, model.EvidenceListen)
 	}
 	return inf
 }

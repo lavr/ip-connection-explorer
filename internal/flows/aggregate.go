@@ -95,7 +95,12 @@ func (a *agg) mergeFlow(f *activeFlow, lim Limits) {
 		o := f.ct.Orig
 		a.orient = &o
 	}
-	for _, pk := range f.procOrder {
+	a.procsTrunc = a.procsTrunc || f.procsTrunc
+	for _, raw := range f.procOrder {
+		pk := raw
+		if f.inf.Status == model.RoleKnown && normEP(f.inf.Initiator) == pk.ep {
+			pk.ep = model.Endpoint{Addr: pk.ep.Addr}
+		}
 		if _, ok := a.procs[pk]; ok {
 			a.procs[pk]++
 			continue

@@ -139,7 +139,14 @@ Rules:
 
 - A LISTEN socket matches only by address, port, family and namespace, with wildcard and
   IPv4-mapped IPv6 semantics, and only if the snapshot is fresh. Port number alone never
-  matches.
+  matches. An IPv4 endpoint covered only by an IPv6 wildcard listener is an assumed match,
+  because `IPV6_V6ONLY` is not visible in the snapshot: it adds `listen` evidence but never
+  raises confidence and never contradicts.
+- A NEW event for a flow already seen with the same non-zero conntrack ID is the same
+  lifetime. A flow removed because a complete dump no longer lists it gets a tombstone, so a
+  late DESTROY does not create a second lifetime.
+- Process attribution uses socket and process snapshots no older than twice the snapshot
+  interval relative to the flow's last observation; connected UDP sockets must match the peer.
 - A UDP socket bound without a peer is **not** evidence of a server: a client using `sendto`
   without `connect` has the same shape. Such sockets are used only for process attribution.
 - `ip_local_port_range` describes the local namespace only. It is never applied to a remote
@@ -168,9 +175,12 @@ Known role key: `scope, family, proto, initiator, service, service_port` (ICMP: 
 instead of the port). The initiator's ephemeral port is dropped from the key only after the
 role is established.
 
-Unknown and low confidence key: `scope, family, proto, endpoint_a, port_a, endpoint_b, port_b`
-with endpoints in deterministic order (lower address first), plus the original orientation as
-a separate field.
+Unknown and conflict key: `scope, family, proto, endpoint_a, port_a, endpoint_b, port_b` with
+`a` the original source and `b` the original destination, so lifetimes whose first packets went
+in opposite directions stay separate records with their own direction. Low confidence known
+dependencies keep the known fields and also fill `endpoint_a/b` with both ports, so the source
+port is not lost before the role is confirmed. Unknown, conflict and low confidence records share
+the unknown budget.
 
 Reclassification: while a flow is active it stays linked to its aggregate record. When better
 evidence moves it from unknown to known, its accounting moves with it; nothing is counted

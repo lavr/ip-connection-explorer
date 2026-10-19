@@ -36,9 +36,10 @@ type AddrSet interface {
 }
 
 type FlowEvidence struct {
-	SawNew   bool
-	NewState model.CTState
-	Sources  map[model.Source]bool
+	SawNew              bool
+	NewState            model.CTState
+	SawSimultaneousOpen bool
+	Sources             map[model.Source]bool
 }
 
 type Inference struct {

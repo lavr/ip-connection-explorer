@@ -171,13 +171,13 @@ func TestUnknownToKnownMovesAccounting(t *testing.T) {
 	}
 }
 
-func TestUnknownKeyKeepsBothPortsOrdered(t *testing.T) {
+func TestUnknownKeyKeepsOrientation(t *testing.T) {
 	m := newTestMachine(t, "m1", []string{"192.0.2.10"}, bigLimits)
 	m.SetEpoch(1)
 	f := flow(model.ProtoUDP, "198.51.100.7:40000", "192.0.2.10:5353")
 	m.ApplyEvent(CTEvent{Kind: EventNew, At: at(1), Epoch: 1, Flow: f})
 	d := onlyDep(t, m)
-	if d.Key.A != ep("192.0.2.10:5353") || d.Key.B != ep("198.51.100.7:40000") || d.Orientation == nil || d.Orientation.Src != ep("198.51.100.7:40000") {
+	if d.Key.A != ep("198.51.100.7:40000") || d.Key.B != ep("192.0.2.10:5353") || d.Orientation == nil || d.Orientation.Src != ep("198.51.100.7:40000") {
 		t.Fatalf("%+v %+v", d.Key, d.Orientation)
 	}
 }

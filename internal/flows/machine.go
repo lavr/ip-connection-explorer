@@ -65,25 +65,32 @@ type State struct {
 
 type flowID struct{ orig, reply model.Tuple }
 
+// tomb marks a lifetime that ended, so late events and stale dumps do not recreate it.
+type tomb struct {
+	at   time.Time
+	ctID uint32
+}
+
 func idOf(f CTFlow) flowID { return flowID{f.Orig, f.Reply} }
 
 type activeFlow struct {
-	id        flowID
-	ct        CTFlow
-	ev        FlowEvidence
-	first     time.Time
-	last      time.Time
-	touched   time.Time
-	sources   map[model.Source]bool
-	tcp       map[model.CTState]bool
-	newEv     uint64
-	destroyEv uint64
-	procs     map[procKey]bool
-	procOrder []procKey
-	inf       Inference
-	dir       model.Direction
-	key       model.DepKey
-	attached  bool
+	id         flowID
+	ct         CTFlow
+	ev         FlowEvidence
+	first      time.Time
+	last       time.Time
+	touched    time.Time
+	sources    map[model.Source]bool
+	tcp        map[model.CTState]bool
+	newEv      uint64
+	destroyEv  uint64
+	procs      map[procKey]bool
+	procOrder  []procKey
+	procsTrunc bool
+	inf        Inference
+	dir        model.Direction
+	key        model.DepKey
+	attached   bool
 }
 
 // Machine is the single owner of collection state. It is not safe for concurrent use.
@@ -96,7 +103,7 @@ type Machine struct {
 
 	addrs       map[netip.Addr]*AddrSeen
 	active      map[flowID]*activeFlow
-	tombs       map[flowID]time.Time
+	tombs       map[flowID]tomb
 	records     map[model.DepKey]*agg
 	refs        map[model.DepKey]int
 	knownKeys   int
@@ -107,6 +114,7 @@ type Machine struct {
 
 	listen  *ListenIndex
 	sockets []Socket
+	sockAt  time.Time
 	procs   ProcIndex
 
 	estimated bool
@@ -126,7 +134,7 @@ func NewMachine(host HostContext, observer model.ObserverRef, lim Limits, sockMa
 		tombstoneTTL: tombstoneTTL,
 		addrs:        map[netip.Addr]*AddrSeen{},
 		active:       map[flowID]*activeFlow{},
-		tombs:        map[flowID]time.Time{},
+		tombs:        map[flowID]tomb{},
 		records:      map[model.DepKey]*agg{},
 		refs:         map[model.DepKey]int{},
 		cov:          model.Coverage{NetNS: "current", Counters: map[string]uint64{}},
@@ -167,19 +175,28 @@ func (m *Machine) ApplyEvent(ev CTEvent) {
 	id := idOf(ev.Flow)
 	f := m.active[id]
 	if ev.Kind == EventNew {
-		if f != nil {
+		if f != nil && !sameLifetime(f.ct.ID, ev.Flow.ID) {
 			m.finish(f)
+			f = nil
 		}
-		delete(m.tombs, id)
-		if f = m.create(ev.Flow, ev.At); f == nil {
+		if f == nil {
+			delete(m.tombs, id)
+			if f = m.create(ev.Flow, ev.At); f == nil {
+				return
+			}
+		}
+		if !f.ev.SawNew {
+			f.ev.SawNew = true
+			if ev.Flow.HasTCPState {
+				f.ev.NewState = ev.Flow.TCPState
+			}
+			f.newEv++
+		}
+	} else if f == nil {
+		if tb, ok := m.tombs[id]; ok && (tb.ctID == 0 || ev.Flow.ID == 0 || tb.ctID == ev.Flow.ID) {
+			m.Count("late_events", 1)
 			return
 		}
-		f.ev.SawNew = true
-		if ev.Flow.HasTCPState {
-			f.ev.NewState = ev.Flow.TCPState
-		}
-		f.newEv++
-	} else if f == nil {
 		if f = m.create(ev.Flow, ev.At); f == nil {
 			return
 		}
@@ -193,9 +210,13 @@ func (m *Machine) ApplyEvent(ev CTEvent) {
 	if ev.Kind == EventDestroy {
 		f.destroyEv++
 		m.finish(f)
-		m.tombs[id] = ev.At
+		m.tombs[id] = tomb{at: ev.At, ctID: ev.Flow.ID}
 	}
 }
+
+// sameLifetime treats a NEW for a flow already seen (in a dump or an earlier NEW) as the same
+// kernel entry when the conntrack IDs match. A zero ID carries no information.
+func sameLifetime(a, b uint32) bool { return a != 0 && a == b }
 
 func (m *Machine) ApplyDump(res DumpResult) {
 	if res.Epoch < m.epoch || (res.Attempt != 0 && res.Attempt <= m.lastAttempt) {
@@ -213,7 +234,7 @@ func (m *Machine) ApplyDump(res DumpResult) {
 	for _, c := range res.Flows {
 		id := idOf(c)
 		seen[id] = true
-		if ts, ok := m.tombs[id]; ok && !ts.Before(res.Started) {
+		if tb, ok := m.tombs[id]; ok && !tb.at.Before(res.Started) {
 			continue
 		}
 		f := m.active[id]
@@ -234,11 +255,12 @@ func (m *Machine) ApplyDump(res DumpResult) {
 		for id, f := range m.active {
 			if !seen[id] && f.touched.Before(res.Started) {
 				m.finish(f)
+				m.tombs[id] = tomb{at: res.Started, ctID: f.ct.ID}
 			}
 		}
 	}
-	for id, ts := range m.tombs {
-		if res.Finished.Sub(ts) > m.tombstoneTTL {
+	for id, tb := range m.tombs {
+		if res.Finished.Sub(tb.at) > m.tombstoneTTL {
 			delete(m.tombs, id)
 		}
 	}
@@ -246,6 +268,7 @@ func (m *Machine) ApplyDump(res DumpResult) {
 
 func (m *Machine) ApplySockets(s SockSnapshot) {
 	m.sockets = s.Sockets
+	m.sockAt = s.At
 	m.listen = NewListenIndex(s.Sockets, s.At)
 	m.reclassifyAll(s.At)
 }
@@ -323,6 +346,9 @@ func (m *Machine) observe(f *activeFlow, c CTFlow, src model.Source, at time.Tim
 	if c.HasTCPState {
 		f.ct.TCPState, f.ct.HasTCPState = c.TCPState, true
 		f.tcp[c.TCPState] = true
+		if c.TCPState == model.CTSynSent2 {
+			f.ev.SawSimultaneousOpen = true
+		}
 	}
 }
 
@@ -370,7 +396,7 @@ func (m *Machine) acquire(key model.DepKey, at time.Time) bool {
 		m.refs[key]++
 		return true
 	}
-	known := key.Status == model.RoleKnown
+	known := !unknownBudget(key)
 	if known && !under(m.knownKeys, m.lim.MaxKnown) || !known && !under(m.unknownKeys, m.lim.MaxUnknown) {
 		m.markTruncated(!known, at)
 		return false
@@ -390,12 +416,16 @@ func (m *Machine) release(key model.DepKey) {
 		return
 	}
 	delete(m.refs, key)
-	if key.Status == model.RoleKnown {
+	if !unknownBudget(key) {
 		m.knownKeys--
 	} else {
 		m.unknownKeys--
 	}
 }
+
+// unknownBudget: unknown, conflict and low-confidence records keep both ports and share the
+// unknown budget, so a busy client cannot exhaust the space for confirmed dependencies.
+func unknownBudget(k model.DepKey) bool { return k.Status != model.RoleKnown || k.A.Addr.IsValid() }
 
 func (m *Machine) direction(f *activeFlow) model.Direction {
 	o, r := f.ct.Orig, f.ct.Reply
@@ -436,13 +466,13 @@ func (m *Machine) keyFor(f *activeFlow) model.DepKey {
 		} else {
 			k.ServicePort = f.inf.Service.Port
 		}
+		if f.inf.Confidence == model.ConfidenceLow && !o.Proto.IsICMP() {
+			k.A, k.B = normEP(o.Src), normEP(o.Dst)
+		}
 		return k
 	}
-	a, b := normEP(o.Src), normEP(o.Dst)
-	if b.Addr.Less(a.Addr) || (a.Addr == b.Addr && b.Port < a.Port) {
-		a, b = b, a
-	}
-	k.A, k.B = a, b
+	// Endpoints keep the original orientation, so opposite first packets stay separate records.
+	k.A, k.B = normEP(o.Src), normEP(o.Dst)
 	return k
 }
 
@@ -453,6 +483,9 @@ func normEP(e model.Endpoint) model.Endpoint {
 // attribute links local endpoints of a flow to processes via the latest socket snapshot and process index.
 func (m *Machine) attribute(f *activeFlow) {
 	if len(m.sockets) == 0 || len(m.procs.ByInode) == 0 || f.ct.Orig.Proto.IsICMP() {
+		return
+	}
+	if m.sockMaxAge > 0 && (f.last.Sub(m.sockAt) > m.sockMaxAge || f.last.Sub(m.procs.At) > m.sockMaxAge) {
 		return
 	}
 	o := f.ct.Orig
@@ -467,13 +500,15 @@ func (m *Machine) attribute(f *activeFlow) {
 			}
 			for _, p := range m.procs.ByInode[s.Inode] {
 				pk := procKey{comm: p.Comm, ep: local}
-				if f.inf.Status == model.RoleKnown && normEP(f.inf.Initiator) == local {
-					pk.ep = model.Endpoint{Addr: local.Addr}
+				if f.procs[pk] {
+					continue
 				}
-				if !f.procs[pk] {
-					f.procs[pk] = true
-					f.procOrder = append(f.procOrder, pk)
+				if !under(len(f.procOrder), m.lim.MaxProcesses) {
+					f.procsTrunc = true
+					continue
 				}
+				f.procs[pk] = true
+				f.procOrder = append(f.procOrder, pk)
 			}
 		}
 	}
@@ -486,6 +521,9 @@ func socketMatches(s Socket, local, remote model.Endpoint) bool {
 	}
 	if s.Proto == model.ProtoTCP {
 		return s.State != model.SockListen && normEP(s.Remote) == remote
+	}
+	if r := normEP(s.Remote); r.Addr.IsValid() && !r.Addr.IsUnspecified() {
+		return r == remote
 	}
 	return true
 }

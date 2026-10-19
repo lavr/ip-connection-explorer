@@ -29,22 +29,30 @@ func NewListenIndex(socks []Socket, at time.Time) *ListenIndex {
 	return li
 }
 
-// Match reports whether a LISTEN socket covers ep. An IPv6 wildcard listener is treated as
-// dual-stack; an IPv4 wildcard covers IPv4 only.
-func (li *ListenIndex) Match(proto model.Proto, ep model.Endpoint, now time.Time, maxAge time.Duration) bool {
+type MatchKind uint8
+
+const (
+	MatchNone MatchKind = iota
+	// MatchAssumed: an IPv4 endpoint covered only by an IPv6 wildcard listener. Whether that
+	// socket is dual-stack (IPV6_V6ONLY unset) is not known from the snapshot.
+	MatchAssumed
+	MatchExact
+)
+
+// Match reports whether a LISTEN socket covers ep.
+func (li *ListenIndex) Match(proto model.Proto, ep model.Endpoint, now time.Time, maxAge time.Duration) MatchKind {
 	if li == nil || (maxAge > 0 && now.Sub(li.at) > maxAge) {
-		return false
+		return MatchNone
 	}
 	a := model.NormalizeAddr(ep.Addr)
+	best := MatchNone
 	for _, l := range li.addrs[listenKey{proto, ep.Port}] {
 		switch {
-		case l == a:
-			return true
-		case l.IsUnspecified() && l.Is6():
-			return true
-		case l.IsUnspecified() && l.Is4() && a.Is4():
-			return true
+		case l == a, l.IsUnspecified() && l.Is4() && a.Is4(), l.IsUnspecified() && l.Is6() && a.Is6():
+			return MatchExact
+		case l.IsUnspecified() && l.Is6() && a.Is4():
+			best = MatchAssumed
 		}
 	}
-	return false
+	return best
 }
