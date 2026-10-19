@@ -46,6 +46,19 @@ func Preflight(cfg Config, src Sources) ([]PreflightResult, bool) {
 	_, err := src.Host()
 	add("host_info", err, true, "machine-id, boot_id, kernel, port range")
 
+	if src.Kernel != nil {
+		n, err := src.Kernel()
+		if err != nil {
+			add("conntrack_kernel", err, true, "")
+			return res, false
+		}
+		if n == 0 {
+			add("conntrack_kernel", fmt.Errorf("conntrack has no entries: tracking is probably not enabled on this host, the map will be empty"), false, "")
+		} else {
+			add("conntrack_kernel", nil, true, fmt.Sprintf("%d tracked entries", n))
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	dump, _, err := src.Dump(ctx, 0, 0, false)
 	cancel()

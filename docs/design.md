@@ -273,7 +273,11 @@ aggregate.
 
 ### Preflight (`collect --check`, and at the start of every `collect`)
 
-Checks real operations, per component, and prints each result:
+Checks real operations, per component, and prints each result. The first check reads only
+files: conntrack must be present (`nf_conntrack_count`) and `nf_conntrack_netlink` must already
+be loaded or built in (`/sys/module`, `modules.builtin`, `/proc/config.gz` or the boot config);
+otherwise the run stops before any netlink call, because opening ctnetlink would make the kernel
+load the module. An empty conntrack table is a warning: tracking is probably not enabled.
 
 - conntrack dump succeeds;
 - event subscription succeeds;

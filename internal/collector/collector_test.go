@@ -412,3 +412,36 @@ func TestOldWriterCannotOverwriteFinal(t *testing.T) {
 		t.Fatalf("final checkpoint replaced by generation %d", f.Run.Generation)
 	}
 }
+
+func TestPreflightDoesNotTouchNetlinkWithoutModule(t *testing.T) {
+	env := &fakeEnv{eventsValue: 1}
+	src := env.sources()
+	touched := 0
+	src.Kernel = func() (int, error) { return 0, conntrack.ErrNetlinkModule }
+	src.Dump = func(context.Context, uint64, uint64, bool) (flows.DumpResult, conntrack.DumpStats, error) {
+		touched++
+		return flows.DumpResult{}, conntrack.DumpStats{}, nil
+	}
+	sub := src.Subscribe
+	src.Subscribe = func(e uint64) (Subscription, error) { touched++; return sub(e) }
+	res, ok := Preflight(testConfig(t.TempDir()), src)
+	if ok || touched != 0 {
+		t.Fatalf("ok=%v touched=%d %+v", ok, touched, res)
+	}
+}
+
+func TestPreflightWarnsOnEmptyConntrack(t *testing.T) {
+	env := &fakeEnv{eventsValue: 1}
+	src := env.sources()
+	src.Kernel = func() (int, error) { return 0, nil }
+	res, ok := Preflight(testConfig(t.TempDir()), src)
+	found := false
+	for _, r := range res {
+		if r.Name == "conntrack_kernel" && !r.OK && !r.Fatal {
+			found = true
+		}
+	}
+	if !ok || !found {
+		t.Fatalf("ok=%v %+v", ok, res)
+	}
+}

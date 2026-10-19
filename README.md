@@ -58,6 +58,7 @@ sudo ipcx collect --duration 7d --state-dir /var/lib/ipcx
 ```
 ok    state_dir        /var/lib/ipcx
 ok    host_info        machine-id, boot_id, kernel, port range
+ok    conntrack_kernel 742 tracked entries
 ok    conntrack_dump   742 entries
 ok    conntrack_events subscription to NEW, UPDATE, DESTROY
 ok    events_sysctl    nf_conntrack_events=2
@@ -166,7 +167,11 @@ correct. Review the table before you send it anywhere.
 - **`nf_conntrack_events=0`** means the kernel sends no events. `collect` refuses to run unless
   `--allow-no-events` is given, and then sees only what the periodic dumps catch.
 - **Only flows that conntrack tracks** are seen. A host without stateful firewall rules may not
-  track connections at all; `--check` shows the dump size.
+  track connections at all: `--check` warns when conntrack has no entries.
+- **Kernel modules are never loaded.** Before touching netlink, `--check` verifies that
+  `nf_conntrack_netlink` is loaded or built in (`/sys/module`, `modules.builtin`, kernel config).
+  If it is a module that is not loaded, `ipcx` stops: opening ctnetlink would make the kernel
+  load it. Load it yourself (`modprobe nf_conntrack_netlink`) if that is acceptable on the host.
 - **UDP roles are often unknown.** A UDP socket bound without a peer is not evidence of a
   server, because a client calling `sendto` looks the same. Such flows keep both ports.
 - **IPv6 wildcard listeners** (`[::]:port`) may or may not accept IPv4; for IPv4 traffic they

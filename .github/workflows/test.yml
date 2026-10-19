@@ -45,5 +45,8 @@ jobs:
           echo "runner image: $ImageOS $ImageVersion"
       - name: Install nftables
         run: command -v nft || (sudo apt-get update && sudo apt-get install -y nftables)
+      # ipcx never loads kernel modules itself; the test environment does it explicitly.
+      - name: Load conntrack netlink
+        run: sudo modprobe nf_conntrack_netlink
       - name: Integration test
         run: make integration

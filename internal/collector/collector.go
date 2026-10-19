@@ -31,6 +31,9 @@ type Subscription interface {
 }
 
 type Sources struct {
+	// Kernel checks conntrack availability without touching netlink and returns the number
+	// of tracked entries. Nil means no check.
+	Kernel       func() (int, error)
 	Subscribe    func(epoch uint64) (Subscription, error)
 	Dump         func(ctx context.Context, attempt, epoch uint64, baseline bool) (flows.DumpResult, conntrack.DumpStats, error)
 	Sockets      func(now time.Time) (flows.SockSnapshot, error)

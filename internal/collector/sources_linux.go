@@ -28,6 +28,13 @@ func LinuxSources(procRoot, etcRoot string) Sources {
 		Now:  now,
 	}
 	return Sources{
+		Kernel: func() (int, error) {
+			release, err := hostinfo.KernelRelease(procRoot)
+			if err != nil {
+				return 0, err
+			}
+			return conntrack.KernelReady(procRoot, "/sys", "/lib/modules/"+release)
+		},
 		Subscribe: func(epoch uint64) (Subscription, error) {
 			s, err := sub.Subscribe(epoch)
 			if err != nil {
