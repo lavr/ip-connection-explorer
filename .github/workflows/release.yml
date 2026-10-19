@@ -26,7 +26,8 @@ jobs:
         with:
           go-version-file: go.mod
       # Build and smoke test before anything is published, so a broken build never
-      # reaches the release page.
+      # reaches the release page. Smoke files go to RUNNER_TEMP: GoReleaser refuses a
+      # dirty working tree.
       - name: Build snapshot
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -36,12 +37,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir smoke
-          tar -xzf dist/ipcx_*_linux_amd64.tar.gz -C smoke
-          ./smoke/ipcx --version
-          ./smoke/ipcx merge testdata/a.json.gz testdata/b.json.gz -o /tmp/m.json.gz
-          ./smoke/ipcx report /tmp/m.json.gz --format csv > /tmp/report.csv
-          head -1 /tmp/report.csv | grep -q '^role_status,'
+          smoke="$RUNNER_TEMP/smoke"
+          mkdir -p "$smoke"
+          tar -xzf dist/ipcx_*_linux_amd64.tar.gz -C "$smoke"
+          "$smoke/ipcx" --version
+          "$smoke/ipcx" merge testdata/a.json.gz testdata/b.json.gz -o "$RUNNER_TEMP/m.json.gz"
+          "$smoke/ipcx" report "$RUNNER_TEMP/m.json.gz" --format csv > "$RUNNER_TEMP/report.csv"
+          head -1 "$RUNNER_TEMP/report.csv" | grep -q '^role_status,'
           ls dist/ipcx_*_linux_arm64.tar.gz
           (cd dist && sha256sum --check --ignore-missing checksums.txt)
       - name: Publish
@@ -55,6 +57,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tar -xzf dist/ipcx_*_linux_amd64.tar.gz -C smoke ipcx
-          ./smoke/ipcx --version | grep -F "${GITHUB_REF_NAME}"
+          tar -xzf dist/ipcx_*_linux_amd64.tar.gz -C "$RUNNER_TEMP/smoke" ipcx
+          "$RUNNER_TEMP/smoke/ipcx" --version | grep -F "${GITHUB_REF_NAME}"
           (cd dist && sha256sum --check --ignore-missing checksums.txt)
