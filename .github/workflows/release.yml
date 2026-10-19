@@ -1,0 +1,38 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Smoke test the amd64 archive
+        run: |
+          set -eu
+          mkdir smoke
+          tar -xzf dist/ipcx_*_linux_amd64.tar.gz -C smoke
+          ./smoke/ipcx --version | grep -F "${GITHUB_REF_NAME#v}"
+          ./smoke/ipcx merge testdata/a.json.gz testdata/b.json.gz -o /tmp/m.json.gz
+          ./smoke/ipcx report /tmp/m.json.gz --format csv | head -1 | grep -q '^role_status,'
+      - name: Check the arm64 archive and checksums
+        run: |
+          set -eu
+          ls dist/ipcx_*_linux_arm64.tar.gz
+          cd dist && sha256sum --check --ignore-missing checksums.txt
