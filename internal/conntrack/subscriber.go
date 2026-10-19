@@ -4,7 +4,6 @@ package conntrack
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,8 +13,6 @@ import (
 
 	"github.com/lavr/ip-connection-explorer/internal/flows"
 )
-
-var ErrQueueFull = errors.New("conntrack event queue full")
 
 // RawListener is the subset of *conntrack.Conn used for events.
 type RawListener interface {
