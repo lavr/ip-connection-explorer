@@ -110,6 +110,11 @@ the report.
 Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` preflight failed,
 `4` state directory locked by another collector.
 
+`--cpuprofile FILE` and `--memprofile FILE` write Go profiles for debugging. The files are
+created with mode 0600 and an existing path is never overwritten; put them in a private
+directory. The heap profile is written after collection has stopped, so it does not show the
+peak live heap.
+
 `--raw` also keeps a rotated journal of events and dump markers for later analysis:
 `raw-<run_id>-*.jsonl.gz` plus `raw-<run_id>.json` with the retained time span. The limits of
 32 MiB per file and 256 MiB per run are counted before compression and enforced when a file is
@@ -183,6 +188,9 @@ correct. Review the table before you send it anywhere.
 - **`--go-memory-limit`** is a soft target for the Go garbage collector, not a cap on memory.
   The hard bounds are `--max-active` (which also caps tombstones of closed flows),
   `--max-known` and `--max-unknown`; when one is hit the report says `truncated`.
+- **`forwarded` does not mean IP forwarding.** Any flow with no local endpoint lands there,
+  including broadcasts received from neighbours on the same L2 segment (DHCP, discovery
+  protocols). These rows are hidden by default.
 - Absence of traffic during the run is not proof that a dependency does not exist.
 
 ## Tested on
@@ -197,6 +205,7 @@ Older kernels, including 5.4, are expected to work but are not listed until test
 
 ```sh
 make test               # unit tests
+make load               # open-loop collector load test (10k events/s)
 make test-linux         # unit tests in a Linux container (netlink adapters)
 make integration-docker # namespace integration test in a privileged container
 make integration        # the same on a Linux host, with sudo
@@ -208,7 +217,7 @@ Releases are cut from `main` with `release.sh`:
 
 ```sh
 ./release.sh status              # latest release tag
-./release.sh app 0.1.0 --dry-run # first release needs an explicit version
+./release.sh app 0.1.1 --dry-run # preview an explicit release
 ./release.sh app patch           # later: patch, minor, major or X.Y.Z
 ```
 

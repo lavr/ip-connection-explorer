@@ -547,7 +547,7 @@ func (r *runner) shutdown() int {
 	}
 	stage("stop observed")
 	r.closeSub(r.cfg.ShutdownTimeout)
-	stage("subscription closed and queue drained")
+	stage("subscription close handled")
 	wait := time.NewTimer(r.cfg.ShutdownTimeout)
 	defer wait.Stop()
 	for r.busy["dump"] || r.busy["sock"] || r.busy["proc"] || r.busy["ck"] {

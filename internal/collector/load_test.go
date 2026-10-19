@@ -61,6 +61,7 @@ func TestPipelineSustainsRate(t *testing.T) {
 		return flows.ProcIndex{At: now, ByInode: byInode}, procindex.Stats{}, nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	env.subscribe = func(epoch uint64) (Subscription, error) {
 		s := newFakeSub(4096)
 		if epoch != 1 {
@@ -109,8 +110,8 @@ func TestPipelineSustainsRate(t *testing.T) {
 		t.Fatalf("code=%d", code)
 	}
 	want := int64(rate * duration / time.Second)
-	if offered.Load() < want*9/10 {
-		t.Fatalf("generator fell behind: offered=%d want>=%d", offered.Load(), want*9/10)
+	if offered.Load() < want*99/100 {
+		t.Fatalf("generator fell behind: offered=%d want>=%d", offered.Load(), want*99/100)
 	}
 	if dropped.Load() != 0 {
 		t.Fatalf("dropped %d of %d offered events", dropped.Load(), offered.Load())
