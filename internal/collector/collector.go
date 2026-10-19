@@ -56,7 +56,7 @@ type Config struct {
 	Backoff         []time.Duration
 	Limits          flows.Limits
 	AllowNoEvents   bool
-	Raw             RawSink
+	OpenRaw         func(runID string) (RawSink, error)
 	Version, Commit string
 	Params          map[string]string
 	Write           func(dir string, f *checkpoint.File) (string, error)
@@ -91,6 +91,7 @@ type procDone struct {
 
 type runner struct {
 	cfg  Config
+	raw  RawSink
 	src  Sources
 	log  *slog.Logger
 	m    *flows.Machine
@@ -145,9 +146,16 @@ func Run(ctx context.Context, cfg Config, src Sources, log *slog.Logger) int {
 		log.Error("host info", "err", err)
 		return ExitPreflight
 	}
+	runID := checkpoint.NewRunID()
+	var raw RawSink
+	if cfg.OpenRaw != nil {
+		if raw, err = cfg.OpenRaw(runID); err != nil {
+			log.Warn("raw journal disabled", "err", err)
+		}
+	}
 	r := &runner{
-		cfg: cfg, src: src, log: log, info: info,
-		runID:   checkpoint.NewRunID(),
+		cfg: cfg, src: src, log: log, info: info, raw: raw,
+		runID:   runID,
 		started: now(),
 		dumpC:   make(chan dumpDone, 1),
 		sockC:   make(chan sockDone, 1),
@@ -246,13 +254,13 @@ func (r *runner) run(ctx context.Context) int {
 
 func (r *runner) applyEvent(ev flows.CTEvent) {
 	r.m.ApplyEvent(ev)
-	if r.cfg.Raw != nil {
-		r.raw(map[string]any{"at": ev.At, "run_id": r.runID, "epoch": ev.Epoch, "source": "event", "kind": ev.Kind, "flow": ev.Flow})
+	if r.raw != nil {
+		r.rawWrite(map[string]any{"at": ev.At, "run_id": r.runID, "epoch": ev.Epoch, "source": "event", "kind": ev.Kind, "flow": ev.Flow})
 	}
 }
 
-func (r *runner) raw(rec any) {
-	if err := r.cfg.Raw.Write(rec); err != nil {
+func (r *runner) rawWrite(rec any) {
+	if err := r.raw.Write(rec); err != nil {
 		r.m.Count("raw_errors", 1)
 	}
 }
@@ -353,8 +361,8 @@ func (r *runner) applyDump(d dumpDone) {
 		r.m.Count("dump_incomplete", 1)
 	}
 	r.m.ApplyDump(d.res)
-	if r.cfg.Raw != nil {
-		r.raw(map[string]any{"at": d.res.Finished, "run_id": r.runID, "epoch": d.res.Epoch, "source": "dump",
+	if r.raw != nil {
+		r.rawWrite(map[string]any{"at": d.res.Finished, "run_id": r.runID, "epoch": d.res.Epoch, "source": "dump",
 			"attempt": d.res.Attempt, "complete": d.res.Complete, "flows": len(d.res.Flows)})
 	}
 }
@@ -516,8 +524,8 @@ func (r *runner) shutdown() int {
 		return ExitRuntime
 	}
 	r.written = true
-	if r.cfg.Raw != nil {
-		if err := r.cfg.Raw.Close(); err != nil {
+	if r.raw != nil {
+		if err := r.raw.Close(); err != nil {
 			r.log.Warn("raw journal close failed", "err", err)
 		}
 	}

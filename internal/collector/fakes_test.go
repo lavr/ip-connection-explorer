@@ -162,4 +162,3 @@ func tryRead(dir string) *checkpoint.File {
 	}
 	return f
 }
-

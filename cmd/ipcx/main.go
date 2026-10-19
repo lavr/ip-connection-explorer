@@ -46,7 +46,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage)
 		return exitOK
-	case "collect", "merge", "report":
+	case "collect":
+		return runCollect(args[2:], stdout, stderr)
+	case "merge", "report":
 		fmt.Fprintf(stderr, "ipcx: %s: not implemented\n", args[1])
 		return exitRuntime
 	default:
