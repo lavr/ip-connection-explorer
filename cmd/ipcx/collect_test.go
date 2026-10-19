@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"io"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -43,5 +44,16 @@ func TestCollectCheckOnNonLinux(t *testing.T) {
 	code := run([]string{"ipcx", "collect", "--check", "--state-dir", t.TempDir()}, &out, io.Discard)
 	if code != 3 || !strings.Contains(out.String(), "fail") || !strings.Contains(out.String(), "unsupported platform") {
 		t.Fatalf("code=%d out=%s", code, out.String())
+	}
+}
+
+func TestCollectWritesProfiles(t *testing.T) {
+	dir := t.TempDir()
+	cpu, mem := dir+"/cpu.pprof", dir+"/mem.pprof"
+	run([]string{"ipcx", "collect", "--check", "--state-dir", dir, "--cpuprofile", cpu, "--memprofile", mem}, io.Discard, io.Discard)
+	for _, p := range []string{cpu, mem} {
+		if st, err := os.Stat(p); err != nil || st.Size() == 0 {
+			t.Fatalf("%s: %v", p, err)
+		}
 	}
 }

@@ -34,6 +34,8 @@ func runCollect(args []string, stdout, stderr io.Writer) int {
 	maxUnknown := fs.Int("max-unknown", 50000, "maximum unknown, conflict and low confidence dependencies")
 	allowNoEvents := fs.Bool("allow-no-events", false, "run even if nf_conntrack_events=0 (periodic dumps only)")
 	check := fs.Bool("check", false, "run the preflight checks and exit")
+	cpuProfile := fs.String("cpuprofile", "", "write a Go CPU profile to this file (for debugging)")
+	memProfile := fs.String("memprofile", "", "write a Go heap profile to this file on exit (for debugging)")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -68,6 +70,18 @@ func runCollect(args []string, stdout, stderr io.Writer) int {
 			return exitUsage
 		}
 		debug.SetMemoryLimit(n)
+	}
+
+	if *cpuProfile != "" {
+		stop, err := startCPUProfile(*cpuProfile)
+		if err != nil {
+			fmt.Fprintf(stderr, "ipcx collect: --cpuprofile: %v\n", err)
+			return exitUsage
+		}
+		defer stop()
+	}
+	if *memProfile != "" {
+		defer writeHeapProfile(*memProfile, stderr)
 	}
 
 	cfg := collector.Config{
