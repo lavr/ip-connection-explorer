@@ -81,6 +81,12 @@ Known properties of `ti-mo/conntrack` the wrapper must respect:
 - A connection joined to a multicast group cannot issue queries: events and dumps use separate
   connections.
 - One decoder worker in v1, to keep event order simple.
+- `Conn.Dump` (v0.6.0) does not report `NLM_F_DUMP_INTR`; the flag is defined in
+  `mdlayher/netlink` but never checked. `ipcx` issues the dump request itself through
+  `ti-mo/netfilter` `Conn.Query`, checks the flag on every reply message, and decodes each
+  message with the exported `conntrack.Event.Unmarshal`.
+- `vishvananda/netlink` socket dumps return partial results together with
+  `ErrDumpInterrupted`; `ipcx` treats such a snapshot as incomplete.
 
 ## Collection
 
