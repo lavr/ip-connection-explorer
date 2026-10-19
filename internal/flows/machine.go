@@ -168,14 +168,18 @@ type Machine struct {
 	epoch       uint64
 	lastAttempt uint64
 
-	listen  *ListenIndex
-	sockets []Socket
-	sockAt  time.Time
-	procs   ProcIndex
+	listen *ListenIndex
+	sidx   *socketIndex
+	sockAt time.Time
+	procs  ProcIndex
 
 	estimated bool
 	cov       model.Coverage
-	limits    model.LimitsState
+
+	// Work counters for tests and benchmarks.
+	attrProbes        int
+	reclassifications int
+	limits            model.LimitsState
 }
 
 func NewMachine(host HostContext, observer model.ObserverRef, lim Limits, sockMaxAge, tombstoneTTL time.Duration) *Machine {
@@ -212,6 +216,7 @@ func (m *Machine) SetEpoch(e uint64) {
 }
 
 func (m *Machine) SetAddresses(addrs []netip.Addr, at time.Time) {
+	added := false
 	for _, a := range addrs {
 		a = model.NormalizeAddr(a)
 		if s, ok := m.addrs[a]; ok {
@@ -219,8 +224,12 @@ func (m *Machine) SetAddresses(addrs []netip.Addr, at time.Time) {
 			continue
 		}
 		m.addrs[a] = &AddrSeen{Addr: a, FirstSeen: at, LastSeen: at}
+		added = true
 	}
-	m.reclassifyAll(at)
+	// Locality only changes when an address appears: addresses are never forgotten.
+	if added {
+		m.reclassifyAll(at)
+	}
 }
 
 func (m *Machine) ApplyEvent(ev CTEvent) {
@@ -322,7 +331,7 @@ func (m *Machine) ApplyDump(res DumpResult) {
 }
 
 func (m *Machine) ApplySockets(s SockSnapshot) {
-	m.sockets = s.Sockets
+	m.sidx = newSocketIndex(s.Sockets)
 	m.sockAt = s.At
 	m.listen = NewListenIndex(s.Sockets, s.At)
 	m.reclassifyAll(s.At)
@@ -431,6 +440,7 @@ func (m *Machine) reclassifyAll(at time.Time) {
 }
 
 func (m *Machine) reclassify(f *activeFlow, now time.Time) {
+	m.reclassifications++
 	prevInf, prevDir := f.inf, f.dir
 	f.inf = Classify(f.ct, f.ev, m.listen, m, m.host, now)
 	f.dir = m.direction(f)
@@ -557,7 +567,7 @@ func normEP(e model.Endpoint) model.Endpoint {
 
 // attribute links local endpoints of a flow to processes via the latest socket snapshot and process index.
 func (m *Machine) attribute(f *activeFlow) {
-	if len(m.sockets) == 0 || len(m.procs.ByInode) == 0 || f.ct.Orig.Proto.IsICMP() {
+	if m.sidx == nil || len(m.procs.ByInode) == 0 || f.ct.Orig.Proto.IsICMP() {
 		return
 	}
 	if m.sockMaxAge > 0 && (f.last.Sub(m.sockAt) > m.sockMaxAge || f.last.Sub(m.procs.At) > m.sockMaxAge) {
@@ -569,10 +579,7 @@ func (m *Machine) attribute(f *activeFlow) {
 		if !m.Has(local.Addr) {
 			continue
 		}
-		for _, s := range m.sockets {
-			if s.Proto != o.Proto || !socketMatches(s, local, remote) {
-				continue
-			}
+		m.attrProbes += m.sidx.each(o.Proto, local, remote, func(s Socket) {
 			for _, p := range m.procs.ByInode[s.Inode] {
 				pk := procKey{comm: p.Comm, ep: local}
 				if f.procs[pk] {
@@ -585,7 +592,7 @@ func (m *Machine) attribute(f *activeFlow) {
 				f.procs[pk] = true
 				f.procOrder = append(f.procOrder, pk)
 			}
-		}
+		})
 	}
 }
 

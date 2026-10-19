@@ -8,8 +8,13 @@ import (
 	"runtime/pprof"
 )
 
+// createPrivate refuses an existing path, so a root run never follows a planted symlink.
+func createPrivate(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+}
+
 func startCPUProfile(path string) (func(), error) {
-	f, err := os.Create(path)
+	f, err := createPrivate(path)
 	if err != nil {
 		return nil, err
 	}
@@ -24,7 +29,7 @@ func startCPUProfile(path string) (func(), error) {
 }
 
 func writeHeapProfile(path string, stderr io.Writer) {
-	f, err := os.Create(path)
+	f, err := createPrivate(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "ipcx collect: --memprofile: %v\n", err)
 		return

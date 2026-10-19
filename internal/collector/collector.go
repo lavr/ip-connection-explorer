@@ -536,11 +536,15 @@ func (r *runner) checkpointDone(err error) {
 // shutdown follows the order in the design: stop the listener while draining it, collect
 // in-flight work, then write the final checkpoint.
 func (r *runner) shutdown() int {
+	start := time.Now()
+	stage := func(name string) { r.log.Info("shutdown", "stage", name, "elapsed", time.Since(start).String()) }
 	code := ExitOK
 	if r.fatal {
 		code = ExitRuntime
 	}
+	stage("stop observed")
 	r.closeSub(r.cfg.ShutdownTimeout)
+	stage("subscription closed and queue drained")
 	wait := time.NewTimer(r.cfg.ShutdownTimeout)
 	defer wait.Stop()
 	for r.busy["dump"] || r.busy["sock"] || r.busy["proc"] || r.busy["ck"] {
@@ -568,6 +572,7 @@ func (r *runner) shutdown() int {
 			code = ExitRuntime
 		}
 	}
+	stage("in-flight results handled")
 	end := now()
 	for _, k := range []model.GapKind{model.GapMap, model.GapAttribution} {
 		if r.m.HasOpenGap(k) {
@@ -580,6 +585,7 @@ func (r *runner) shutdown() int {
 		return ExitRuntime
 	}
 	r.written = true
+	stage("final checkpoint written")
 	if r.raw != nil {
 		if err := r.raw.Close(); err != nil {
 			r.log.Warn("raw journal close failed", "err", err)

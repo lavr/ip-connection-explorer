@@ -57,3 +57,25 @@ func TestCollectWritesProfiles(t *testing.T) {
 		}
 	}
 }
+
+func TestProfileRefusesExistingPath(t *testing.T) {
+	p := t.TempDir() + "/cpu.pprof"
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"ipcx", "collect", "--check", "--state-dir", t.TempDir(), "--cpuprofile", p}, io.Discard, io.Discard); code != 2 {
+		t.Fatalf("code=%d", code)
+	}
+	if st, _ := os.Stat(t.TempDir()); st == nil {
+		t.Fatal()
+	}
+}
+
+func TestProfileFileIsPrivate(t *testing.T) {
+	p := t.TempDir() + "/cpu.pprof"
+	run([]string{"ipcx", "collect", "--check", "--state-dir", t.TempDir(), "--cpuprofile", p}, io.Discard, io.Discard)
+	st, err := os.Stat(p)
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("%v %v", st.Mode(), err)
+	}
+}
