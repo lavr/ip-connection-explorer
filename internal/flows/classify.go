@@ -16,8 +16,8 @@ func Classify(f CTFlow, ev FlowEvidence, li *ListenIndex, addrs AddrSet, host Ho
 			return Inference{Status: model.RoleKnown, Initiator: o.Src, Service: o.Dst,
 				Evidence: []model.Evidence{model.EvidencePortRange}, Confidence: model.ConfidenceLow}
 		}
-		// A first packet from outside to a bound, non-ephemeral local port: a UDP server.
-		// Bound ephemeral ports are excluded because clients using sendto look the same.
+		// A first packet from outside to a bound, non-ephemeral local port: a weak server
+		// hypothesis. Bound ephemeral ports are excluded because sendto clients look the same.
 		if addrs.Has(o.Dst.Addr) && !addrs.Has(o.Src.Addr) && host.PortRangeLow > 0 && !host.ephemeral(o.Dst.Port) &&
 			li.UDPBound(o.Dst, now, host.ListenMaxAge) {
 			return Inference{Status: model.RoleKnown, Initiator: o.Src, Service: o.Dst,

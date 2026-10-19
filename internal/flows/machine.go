@@ -69,18 +69,25 @@ type flowID struct{ orig, reply model.Tuple }
 type tomb struct {
 	at   time.Time
 	ctID uint32
+	seq  uint64
 }
 
 type tombRef struct {
-	id flowID
-	at time.Time
+	id  flowID
+	at  time.Time
+	seq uint64
 }
 
 const sweepEvery = 1024
 
 func (m *Machine) addTomb(id flowID, t tomb) {
+	m.tombSeq++
+	t.seq = m.tombSeq
 	m.tombs[id] = t
-	m.tombQ = append(m.tombQ, tombRef{id, t.at})
+	m.tombQ = append(m.tombQ, tombRef{id, t.at, t.seq})
+	if len(m.tombQ) > 2*len(m.tombs)+sweepEvery {
+		m.compactTombs()
+	}
 	if m.lim.MaxActive > 0 && len(m.tombs) > m.lim.MaxActive {
 		m.sweepTombs(t.at)
 		for len(m.tombs) > m.lim.MaxActive && len(m.tombQ) > 0 {
@@ -90,10 +97,21 @@ func (m *Machine) addTomb(id flowID, t tomb) {
 	}
 }
 
+// compactTombs drops queue entries whose tombstone was replaced or removed.
+func (m *Machine) compactTombs() {
+	live := m.tombQ[:0]
+	for _, r := range m.tombQ {
+		if t, ok := m.tombs[r.id]; ok && t.seq == r.seq {
+			live = append(live, r)
+		}
+	}
+	m.tombQ = live
+}
+
 func (m *Machine) popTomb() {
 	r := m.tombQ[0]
 	m.tombQ = m.tombQ[1:]
-	if t, ok := m.tombs[r.id]; ok && t.at.Equal(r.at) {
+	if t, ok := m.tombs[r.id]; ok && t.seq == r.seq {
 		delete(m.tombs, r.id)
 	}
 }
@@ -140,6 +158,7 @@ type Machine struct {
 	active      map[flowID]*activeFlow
 	tombs       map[flowID]tomb
 	tombQ       []tombRef
+	tombSeq     uint64
 	sinceSweep  int
 	records     map[model.DepKey]*agg
 	refs        map[model.DepKey]int
@@ -412,6 +431,7 @@ func (m *Machine) reclassifyAll(at time.Time) {
 }
 
 func (m *Machine) reclassify(f *activeFlow, now time.Time) {
+	prevInf, prevDir := f.inf, f.dir
 	f.inf = Classify(f.ct, f.ev, m.listen, m, m.host, now)
 	f.dir = m.direction(f)
 	key := m.keyFor(f)
@@ -419,7 +439,11 @@ func (m *Machine) reclassify(f *activeFlow, now time.Time) {
 		return
 	}
 	if !m.acquire(key, now) {
-		// Keep the flow on its previous record rather than dropping what was already observed.
+		// Keep the flow on its previous record, with the inference that record was built
+		// from, rather than dropping what was already observed.
+		if f.attached {
+			f.inf, f.dir = prevInf, prevDir
+		}
 		return
 	}
 	if f.attached {
@@ -507,14 +531,23 @@ func (m *Machine) keyFor(f *activeFlow) model.DepKey {
 	}
 	// Endpoints keep the original orientation, so opposite first packets stay separate records.
 	// A local ephemeral port is recorded as 0, or every client query would be its own record.
-	k.A, k.B = m.collapse(normEP(o.Src)), m.collapse(normEP(o.Dst))
+	k.A, k.B = m.collapse(o.Proto, normEP(o.Src)), m.collapse(o.Proto, normEP(o.Dst))
 	return k
 }
 
-func (m *Machine) collapse(e model.Endpoint) model.Endpoint {
-	if m.Has(e.Addr) && m.host.ephemeral(e.Port) {
-		e.Port = 0
+// collapse omits a local port that falls in the ephemeral range, unless something on the host
+// listens on or is bound to it.
+func (m *Machine) collapse(proto model.Proto, e model.Endpoint) model.Endpoint {
+	if !m.Has(e.Addr) || !m.host.ephemeral(e.Port) {
+		return e
 	}
+	if proto == model.ProtoTCP && m.listen.Match(proto, e, time.Time{}, 0) != MatchNone {
+		return e
+	}
+	if proto == model.ProtoUDP && m.listen.UDPBound(e, time.Time{}, 0) {
+		return e
+	}
+	e.Port = 0
 	return e
 }
 

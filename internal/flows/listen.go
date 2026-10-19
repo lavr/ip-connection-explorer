@@ -51,7 +51,8 @@ func (li *ListenIndex) UDPBound(ep model.Endpoint, now time.Time, maxAge time.Du
 	}
 	a := model.NormalizeAddr(ep.Addr)
 	for _, l := range li.udp[ep.Port] {
-		if l == a || l.IsUnspecified() {
+		// Same family only: whether a [::] socket also accepts IPv4 is not visible here.
+		if l == a || (l.IsUnspecified() && l.Is4() == a.Is4()) {
 			return true
 		}
 	}

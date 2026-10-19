@@ -134,3 +134,17 @@ func TestWriteToPath(t *testing.T) {
 		t.Fatalf("%v %+v", err, f)
 	}
 }
+
+func TestOlderGenerationCannotReplaceNewer(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Write(dir, sample(2)); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Write(dir, sample(1))
+	if !errors.Is(err, ErrStale) {
+		t.Fatalf("err=%v", err)
+	}
+	if f, err := Read(p); err != nil || f.Run.Generation != 2 {
+		t.Fatalf("%v %+v", err, f)
+	}
+}

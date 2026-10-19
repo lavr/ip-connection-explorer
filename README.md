@@ -129,7 +129,7 @@ dependency usually appears twice: outbound on the client, inbound on the server.
 | `proto` | `tcp`, `udp`, `icmp`, `icmpv6` |
 | `initiator`, `service`, `service_port` | filled for known roles |
 | `icmp_type`, `icmp_code` | ICMP instead of a port |
-| `endpoint_a`, `port_a`, `endpoint_b`, `port_b` | both ports in the original direction, for unknown and conflict rows; a local ephemeral port is shown as `0` |
+| `endpoint_a`, `port_a`, `endpoint_b`, `port_b` | both ports in the original direction, for unknown and conflict rows; `0` means a local port omitted because it falls in the host's ephemeral range and nothing listens on it |
 | `observer`, `run_id` | which host and run saw it |
 | `direction` | relative to the observer: `outbound`, `inbound`, `local`, `forwarded`, `unresolved` |
 | `confidence`, `evidence` | how the role was decided, see below |

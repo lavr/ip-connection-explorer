@@ -6,7 +6,18 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+// ErrStale is returned when a newer generation of the same checkpoint was already written.
+var ErrStale = errors.New("checkpoint generation is older than the one on disk")
+
+// fence remembers the newest generation committed per checkpoint path in this process, so a
+// slow writer can never replace a newer checkpoint with an older one.
+var fence = struct {
+	sync.Mutex
+	gen map[string]uint64
+}{gen: map[string]uint64{}}
 
 type writerFS interface {
 	CreateTemp(dir, pattern string) (*os.File, error)
@@ -26,11 +37,24 @@ var fsys writerFS = osFS{}
 
 func Write(dir string, f *File) (string, error) {
 	path := filepath.Join(dir, FileName(f.Host.Hostname, f.Run.RunID))
-	return path, WriteTo(path, f)
+	gen := f.Run.Generation
+	return path, write(path, f, func() error {
+		if last, ok := fence.gen[path]; ok && gen <= last {
+			return ErrStale
+		}
+		fence.gen[path] = gen
+		return nil
+	})
 }
 
 // WriteTo replaces path atomically: on any error the previous file is left untouched.
-func WriteTo(path string, v any) (err error) {
+func WriteTo(path string, v any) error {
+	return write(path, v, nil)
+}
+
+// write encodes v to a temporary file and renames it over path. admit, if set, is checked
+// under the fence lock right before the rename.
+func write(path string, v any, admit func() error) (err error) {
 	tmp, err := fsys.CreateTemp(filepath.Dir(path), ".ipcx-*.tmp")
 	if err != nil {
 		return err
@@ -53,6 +77,13 @@ func WriteTo(path string, v any) (err error) {
 	}
 	if err = tmp.Close(); err != nil {
 		return err
+	}
+	if admit != nil {
+		fence.Lock()
+		defer fence.Unlock()
+		if err = admit(); err != nil {
+			return err
+		}
 	}
 	if err = fsys.Rename(tmp.Name(), path); err != nil {
 		return errors.Join(err, fsys.Remove(tmp.Name()))

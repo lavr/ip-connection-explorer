@@ -383,3 +383,32 @@ func TestStuckJobOpensGapDuringRun(t *testing.T) {
 	cancel()
 	waitCode(t, done)
 }
+
+func TestOldWriterCannotOverwriteFinal(t *testing.T) {
+	dir := t.TempDir()
+	env := &fakeEnv{eventsValue: 1}
+	block := make(chan struct{})
+	started := make(chan struct{})
+	var once atomic.Bool
+	oldDone := make(chan struct{})
+	cfg := testConfig(dir)
+	cfg.ShutdownTimeout = 30 * time.Millisecond
+	cfg.Write = func(d string, f *checkpoint.File) (string, error) {
+		if f.Run.Generation == 1 && once.CompareAndSwap(false, true) {
+			close(started)
+			<-block
+			defer close(oldDone)
+		}
+		return checkpoint.Write(d, f)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, cfg, env.sources())
+	<-started
+	cancel()
+	waitCode(t, done)
+	close(block)
+	<-oldDone
+	if f := readOnly(t, dir); f.Run.Generation < 2 {
+		t.Fatalf("final checkpoint replaced by generation %d", f.Run.Generation)
+	}
+}

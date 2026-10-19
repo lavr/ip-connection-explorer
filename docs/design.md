@@ -180,8 +180,9 @@ role is established.
 Unknown and conflict key: `scope, family, proto, endpoint_a, port_a, endpoint_b, port_b` with
 `a` the original source and `b` the original destination, so lifetimes whose first packets went
 in opposite directions stay separate records with their own direction. A local port inside the
-local `ip_local_port_range` is recorded as `0` (ephemeral); otherwise every client query would
-be a record of its own and fill the budget within hours. Low confidence known dependencies use
+local `ip_local_port_range` is omitted (recorded as `0`) unless a socket on the host listens on
+or is bound to it; otherwise every client query would be a record of its own and fill the budget
+within hours. This loses the exact port beyond the stored examples, deliberately. Low confidence known dependencies use
 the known key; their source ports survive in `examples`. Unknown and conflict records have their
 own budget.
 
