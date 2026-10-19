@@ -413,11 +413,11 @@ func TestOldWriterCannotOverwriteFinal(t *testing.T) {
 	}
 }
 
-func TestPreflightDoesNotTouchNetlinkWithoutModule(t *testing.T) {
+func TestPreflightStopsWithoutConntrack(t *testing.T) {
 	env := &fakeEnv{eventsValue: 1}
 	src := env.sources()
 	touched := 0
-	src.Kernel = func() (int, error) { return 0, conntrack.ErrNetlinkModule }
+	src.Kernel = func() (int, error) { return 0, conntrack.ErrNoConntrack }
 	src.Dump = func(context.Context, uint64, uint64, bool) (flows.DumpResult, conntrack.DumpStats, error) {
 		touched++
 		return flows.DumpResult{}, conntrack.DumpStats{}, nil

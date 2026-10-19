@@ -53,7 +53,7 @@ func Preflight(cfg Config, src Sources) ([]PreflightResult, bool) {
 			return res, false
 		}
 		if n == 0 {
-			add("conntrack_kernel", fmt.Errorf("conntrack has no entries: tracking is probably not enabled on this host, the map will be empty"), false, "")
+			add("conntrack_kernel", fmt.Errorf("conntrack has no entries right now; on a busy host this usually means its traffic is not tracked and the map will stay empty"), false, "")
 		} else {
 			add("conntrack_kernel", nil, true, fmt.Sprintf("%d tracked entries", n))
 		}

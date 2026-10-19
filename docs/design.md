@@ -18,7 +18,7 @@ what is allowed.
 
 ### Goals
 
-- One static binary, no packages to install on the host, no kernel module or sysctl changes.
+- One static binary, no packages to install on the host, no firewall rule or sysctl changes.
 - Run for days, survive listener errors, report exactly what was and was not observed.
 - Distinguish facts from guesses: every inferred role carries its evidence and confidence.
 - Merge results from many hosts without double counting a connection seen from both ends.
@@ -274,10 +274,11 @@ aggregate.
 ### Preflight (`collect --check`, and at the start of every `collect`)
 
 Checks real operations, per component, and prints each result. The first check reads only
-files: conntrack must be present (`nf_conntrack_count`) and `nf_conntrack_netlink` must already
-be loaded or built in (`/sys/module`, `modules.builtin`, `/proc/config.gz` or the boot config);
-otherwise the run stops before any netlink call, because opening ctnetlink would make the kernel
-load the module. An empty conntrack table is a warning: tracking is probably not enabled.
+procfs: without `nf_conntrack_count` there is no conntrack and nothing to observe, so the run
+stops. An empty table is a warning: on a busy host it usually means the traffic is not tracked.
+Opening the netlink interfaces may make the kernel autoload `nf_conntrack_netlink` and the
+`*_diag` modules, exactly as `ss` and `conntrack` do; `ipcx` never adds rules or enables
+tracking.
 
 - conntrack dump succeeds;
 - event subscription succeeds;
@@ -287,8 +288,8 @@ load the module. An empty conntrack table is a warning: tracking is probably not
 - `/proc/<pid>/fd` is readable.
 
 Conntrack failure stops the collector. sock_diag or `/proc` failure continues without process
-attribution, with a warning and an `attribution` gap. The tool never loads modules, changes
-sysctls or generates traffic.
+attribution, with a warning and an `attribution` gap. The tool never changes sysctls, adds
+rules or generates traffic.
 
 ### Listener errors
 

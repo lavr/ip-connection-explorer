@@ -9,7 +9,7 @@ weekly jobs, backups, OAuth callbacks. `ipcx` watches the host itself for days, 
 map of who talks to whom, and turns maps from many hosts into one reviewable table.
 
 It does not capture packets, does not inspect payload, does not generate firewall rules and
-never changes kernel settings.
+does not change kernel settings.
 
 ## How it works
 
@@ -167,11 +167,11 @@ correct. Review the table before you send it anywhere.
 - **`nf_conntrack_events=0`** means the kernel sends no events. `collect` refuses to run unless
   `--allow-no-events` is given, and then sees only what the periodic dumps catch.
 - **Only flows that conntrack tracks** are seen. A host without stateful firewall rules may not
-  track connections at all: `--check` warns when conntrack has no entries.
-- **Kernel modules are never loaded.** Before touching netlink, `--check` verifies that
-  `nf_conntrack_netlink` is loaded or built in (`/sys/module`, `modules.builtin`, kernel config).
-  If it is a module that is not loaded, `ipcx` stops: opening ctnetlink would make the kernel
-  load it. Load it yourself (`modprobe nf_conntrack_netlink`) if that is acceptable on the host.
+  track connections at all: `--check` fails when conntrack is absent and warns when it has no
+  entries. `ipcx` never adds rules or enables tracking.
+- **Kernel modules.** Like `ss` and `conntrack`, opening the netlink interfaces can make the
+  kernel autoload `nf_conntrack_netlink`, `inet_diag`, `tcp_diag` and `udp_diag`. They only
+  expose interfaces; they do not change packet handling.
 - **UDP roles are often unknown.** A UDP socket bound without a peer is not evidence of a
   server, because a client calling `sendto` looks the same. Such flows keep both ports.
 - **IPv6 wildcard listeners** (`[::]:port`) may or may not accept IPv4; for IPv4 traffic they

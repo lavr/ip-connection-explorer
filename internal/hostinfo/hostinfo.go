@@ -53,10 +53,6 @@ func Collect(procRoot, etcRoot string) (Info, error) {
 	return info, nil
 }
 
-func KernelRelease(procRoot string) (string, error) {
-	return readTrim(filepath.Join(procRoot, "sys/kernel/osrelease"))
-}
-
 func Addresses() ([]netip.Addr, error) {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
