@@ -182,11 +182,11 @@ correct. Review the table before you send it anywhere.
 
 ## Tested on
 
+- Linux 6.17 (GitHub `ubuntu-24.04` runner, the integration test in CI).
 - Linux 7.2 (integration tests in a privileged container: network namespaces, nftables,
   IPv4 and IPv6).
 
-CI runs the same integration test on GitHub `ubuntu-24.04` runners. Older kernels, including
-5.4, are expected to work but are not listed until tested.
+Older kernels, including 5.4, are expected to work but are not listed until tested.
 
 ## Development
 
