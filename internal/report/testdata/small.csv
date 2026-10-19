@@ -1,0 +1,4 @@
+role_status,scope,proto,initiator,service,service_port,icmp_type,icmp_code,endpoint_a,port_a,endpoint_b,port_b,observer,run_id,direction,confidence,evidence,processes,first_seen,last_seen,flows_observed,flows_estimated,ever_reply_seen,coverage_status
+known,global,tcp,192.0.2.10,198.51.100.5,443,,,,,,,h1,r1,outbound,high,conntrack_new,"curl,x@192.0.2.10",2026-01-01T00:00:00Z,2026-01-01T01:00:00Z,2,false,true,complete
+unknown,global,udp,,,,,,198.51.100.7,40000,192.0.2.10,5353,h1,r1,inbound,low,none,,2026-01-01T00:00:00Z,2026-01-01T01:00:00Z,2,false,true,complete
+known,global,icmp,192.0.2.10,198.51.100.1,,8,0,,,,,h1,r1,outbound,medium,conntrack_original,,2026-01-01T00:00:00Z,2026-01-01T01:00:00Z,2,false,true,complete

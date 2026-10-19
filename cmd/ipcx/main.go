@@ -51,8 +51,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "merge":
 		return runMerge(args[2:], stdout, stderr)
 	case "report":
-		fmt.Fprintf(stderr, "ipcx: %s: not implemented\n", args[1])
-		return exitRuntime
+		return runReport(args[2:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ipcx: unknown command %q\n\n%s", args[1], usage)
 		return exitUsage
