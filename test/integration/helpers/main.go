@@ -114,5 +114,6 @@ func hold(addr, ready string) error {
 	}
 	defer c.Close()
 	markReady(ready)
-	select {}
+	_, err = io.Copy(io.Discard, c)
+	return err
 }
