@@ -112,7 +112,8 @@ lifetime. A conntrack ID alone is not a durable identity.
 - NEW, baseline dump entry, UPDATE and DESTROY of one lifetime are observations of one flow,
   not several flows.
 - A flow removed by DESTROY gets a tombstone. A dump result that started before the DESTROY
-  and arrives after it does not resurrect the flow.
+  and arrives after it does not resurrect the flow. Tombstones expire after twice the dump
+  interval, are swept on events as well as dumps, and are capped at `--max-active`.
 - A new flow with the same tuple after a DESTROY is a new lifetime.
 - Dump results carry an attempt ID and the listener epoch. Results from an older epoch or an
   older attempt cannot overwrite newer state.
@@ -132,7 +133,8 @@ matching rule.
 | TCP: flow seen only in a dump or UPDATE, start not observed | original destination is the probable service | medium |
 | plus a matching LISTEN socket on the service side | confirms the probable service | high |
 | a matching LISTEN socket on the original source side | contradicts | `conflict`, full tuples kept |
-| UDP: outbound flow whose local source port is inside the local `ip_local_port_range` | weak hypothesis that the destination is the service | low, both ports kept |
+| UDP: outbound flow whose local source port is inside the local `ip_local_port_range` | weak hypothesis that the destination is the service | low (`port_range`) |
+| UDP: first packet from a remote address to a local port that is bound by an unconnected socket and is outside the local `ip_local_port_range` | the local port is the service | low (`udp_bound`) |
 | nothing of the above | none | `unknown` |
 
 Rules:
@@ -177,10 +179,14 @@ role is established.
 
 Unknown and conflict key: `scope, family, proto, endpoint_a, port_a, endpoint_b, port_b` with
 `a` the original source and `b` the original destination, so lifetimes whose first packets went
-in opposite directions stay separate records with their own direction. Low confidence known
-dependencies keep the known fields and also fill `endpoint_a/b` with both ports, so the source
-port is not lost before the role is confirmed. Unknown, conflict and low confidence records share
-the unknown budget.
+in opposite directions stay separate records with their own direction. A local port inside the
+local `ip_local_port_range` is recorded as `0` (ephemeral); otherwise every client query would
+be a record of its own and fill the budget within hours. Low confidence known dependencies use
+the known key; their source ports survive in `examples`. Unknown and conflict records have their
+own budget.
+
+When better evidence would move a flow to a key whose budget is full, the flow stays on its
+previous record, so nothing already observed disappears from the next checkpoint.
 
 Reclassification: while a flow is active it stays linked to its aggregate record. When better
 evidence moves it from unknown to known, its accounting moves with it; nothing is counted
@@ -282,7 +288,10 @@ sysctls or generates traffic.
 ### Listener errors
 
 Any listener error opens a `map` gap with its reason, closes the subscription safely (see
-Shutdown), resubscribes, runs a full resync dump and closes the gap. Retries are bounded with a
+Shutdown), resubscribes and requests a full resync dump. The dump runs like any other dump, so
+events keep being read meanwhile; the gap closes when a complete dump of the current epoch
+arrives. A job (dump, socket snapshot, process index, checkpoint write) running for more than
+three intervals is reported as stuck and opens a gap of the matching kind. Retries are bounded with a
 cancellable backoff. When retries are exhausted, `collect` writes a final partial checkpoint and
 exits non-zero. There is no long-running dump-only fallback mode in v1.
 
@@ -299,7 +308,9 @@ Triggered by SIGTERM, SIGINT or `--duration`. Uses a separate bounded shutdown c
 6. Write the final checkpoint.
 7. Release the lock.
 
-`os.Exit` is never called before this sequence finishes. A failed final write exits non-zero
+If in-flight jobs do not finish within the shutdown timeout, they are recorded as stuck gaps
+and the final checkpoint is still written, with exit code 1. `os.Exit` is never called before
+this sequence finishes. A failed final write exits non-zero
 even if an older checkpoint exists. A run that never produced a checkpoint is a failed run.
 
 ### Exit codes
@@ -338,7 +349,10 @@ coverage_status
 
 - For `unknown` and `conflict` rows, `initiator`, `service` and `service_port` are empty;
   `endpoint_*` and `port_*` are filled. For known rows the endpoint columns are empty.
-- `coverage_status` is `complete`, `incomplete` or `truncated` for the observer run.
+- `coverage_status` for the observer run: `incomplete` when the history has a map gap, a map
+  gap is still open, events were not enabled (`nf_conntrack_events` not 1 or 2) or the run has
+  not finished (last interval open); `truncated` when a limit was hit; `incomplete+truncated`
+  for both; otherwise `complete`. Attribution gaps do not change it.
 - Loopback, `forwarded` and `unresolved` rows are hidden by default; `--include-hidden` shows
   them.
 

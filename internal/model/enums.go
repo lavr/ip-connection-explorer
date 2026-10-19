@@ -126,9 +126,10 @@ const (
 	EvidenceListen
 	EvidenceListenContradicts
 	EvidencePortRange
+	EvidenceUDPBound
 )
 
-var evidenceNames = textEnum[Evidence]{[]string{"none", "conntrack_new", "conntrack_original", "listen", "listen_contradicts", "port_range"}}
+var evidenceNames = textEnum[Evidence]{[]string{"none", "conntrack_new", "conntrack_original", "listen", "listen_contradicts", "port_range", "udp_bound"}}
 
 func (v Evidence) String() string                { return evidenceNames.str(v) }
 func (v Evidence) MarshalText() ([]byte, error)  { return evidenceNames.marshal(v) }

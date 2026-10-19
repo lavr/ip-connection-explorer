@@ -13,8 +13,10 @@ import (
 	"go.uber.org/goleak"
 
 	"github.com/lavr/ip-connection-explorer/internal/checkpoint"
+	"github.com/lavr/ip-connection-explorer/internal/conntrack"
 	"github.com/lavr/ip-connection-explorer/internal/flows"
 	"github.com/lavr/ip-connection-explorer/internal/model"
+	"github.com/lavr/ip-connection-explorer/internal/procindex"
 )
 
 func TestPreflightStateDirNotWritable(t *testing.T) {
@@ -266,4 +268,118 @@ func TestDurationEndsRun(t *testing.T) {
 		t.Fatalf("code=%d", code)
 	}
 	readOnly(t, dir)
+}
+
+func TestPreflightCreatesMissingStateDirLater(t *testing.T) {
+	env := &fakeEnv{eventsValue: 1}
+	res, ok := Preflight(testConfig(filepath.Join(t.TempDir(), "not-yet")), env.sources())
+	if !ok || !res[0].OK {
+		t.Fatalf("%+v", res[0])
+	}
+}
+
+func TestResyncDoesNotBlockEvents(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	dir := t.TempDir()
+	env := &fakeEnv{eventsValue: 1}
+	release := make(chan struct{})
+	src := env.sources()
+	inner := src.Dump
+	src.Dump = func(ctx context.Context, attempt, epoch uint64, baseline bool) (flows.DumpResult, conntrack.DumpStats, error) {
+		if epoch == 1 && baseline {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		return inner(ctx, attempt, epoch, baseline)
+	}
+	env.subscribe = func(epoch uint64) (Subscription, error) {
+		s := newFakeSub(4)
+		if epoch == 1 {
+			f := ctflow("192.0.2.10:40000", "198.51.100.5:443")
+			s.events <- flows.CTEvent{Kind: flows.EventNew, At: time.Now(), Epoch: 1, Flow: f}
+		}
+		return s, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, testConfig(dir), src)
+	waitFor(t, func() bool { f := tryRead(dir); return f != nil && len(f.Dependencies) == 1 })
+	close(release)
+	cancel()
+	if code := waitCode(t, done); code != ExitOK {
+		t.Fatalf("code=%d", code)
+	}
+}
+
+func TestHungSnapshotStillWritesFinalCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	env := &fakeEnv{eventsValue: 1}
+	src := env.sources()
+	hang := make(chan struct{})
+	var calls atomic.Int32
+	inner := src.Sockets
+	src.Sockets = func(now time.Time) (flows.SockSnapshot, error) {
+		if calls.Add(1) > 2 {
+			<-hang
+		}
+		return inner(now)
+	}
+	cfg := testConfig(dir)
+	cfg.CheckpointEvery = time.Hour
+	cfg.ShutdownTimeout = 200 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, cfg, src)
+	waitFor(t, func() bool { return calls.Load() > 2 })
+	cancel()
+	code := waitCode(t, done)
+	close(hang)
+	if code != ExitRuntime {
+		t.Fatalf("code=%d", code)
+	}
+	f := readOnly(t, dir)
+	found := false
+	for _, g := range f.Coverage.Gaps {
+		if g.Kind == model.GapAttribution && g.Reason == "sock_stuck" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("%+v", f.Coverage.Gaps)
+	}
+}
+
+func TestStuckJobOpensGapDuringRun(t *testing.T) {
+	dir := t.TempDir()
+	env := &fakeEnv{eventsValue: 1}
+	src := env.sources()
+	hang := make(chan struct{})
+	defer close(hang)
+	var calls atomic.Int32
+	inner := src.Procs
+	src.Procs = func(now time.Time) (flows.ProcIndex, procindex.Stats, error) {
+		if calls.Add(1) > 2 {
+			<-hang
+		}
+		return inner(now)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := testConfig(dir)
+	cfg.ShutdownTimeout = 100 * time.Millisecond
+	done := runAsync(ctx, cfg, src)
+	waitFor(t, func() bool {
+		f := tryRead(dir)
+		if f == nil {
+			return false
+		}
+		for _, g := range f.Coverage.Gaps {
+			if g.Kind == model.GapAttribution && g.Reason == "proc_stuck" {
+				return true
+			}
+		}
+		return false
+	})
+	cancel()
+	waitCode(t, done)
 }

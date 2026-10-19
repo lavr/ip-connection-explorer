@@ -2,8 +2,11 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -32,7 +35,13 @@ func Preflight(cfg Config, src Sources) ([]PreflightResult, bool) {
 	}
 	now := time.Now().UTC()
 
-	add("state_dir", checkWritable(cfg.StateDir), true, cfg.StateDir)
+	stateDetail := cfg.StateDir
+	stateErr := checkWritable(cfg.StateDir)
+	if errors.Is(stateErr, fs.ErrNotExist) {
+		stateDetail += " (will be created)"
+		stateErr = checkWritable(filepath.Dir(cfg.StateDir))
+	}
+	add("state_dir", stateErr, true, stateDetail)
 
 	_, err := src.Host()
 	add("host_info", err, true, "machine-id, boot_id, kernel, port range")

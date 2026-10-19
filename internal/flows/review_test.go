@@ -43,35 +43,6 @@ func TestDumpRemovalThenLateDestroy(t *testing.T) {
 	}
 }
 
-func TestLowConfidenceUDPPreservesSourcePorts(t *testing.T) {
-	m := newTestMachine(t, "m1", []string{"192.0.2.10"}, bigLimits)
-	m.SetEpoch(1)
-	for i, src := range []string{"192.0.2.10:40000", "192.0.2.10:40001"} {
-		m.ApplyEvent(CTEvent{Kind: EventNew, At: at(i), Epoch: 1, Flow: flow(model.ProtoUDP, src, "198.51.100.53:53")})
-	}
-	ds := deps(m)
-	if len(ds) != 2 {
-		t.Fatalf("want 2 keys, got %d", len(ds))
-	}
-	for _, d := range ds {
-		if d.Key.A.Port == 0 || d.Key.B.Port != 53 || d.Confidence != model.ConfidenceLow {
-			t.Fatalf("%+v", d.Key)
-		}
-	}
-}
-
-func TestLowConfidenceCountsAgainstUnknownBudget(t *testing.T) {
-	lim := bigLimits
-	lim.MaxUnknown = 1
-	m := newTestMachine(t, "m1", []string{"192.0.2.10"}, lim)
-	m.SetEpoch(1)
-	m.ApplyEvent(CTEvent{Kind: EventNew, At: at(1), Epoch: 1, Flow: flow(model.ProtoUDP, "192.0.2.10:40000", "198.51.100.53:53")})
-	m.ApplyEvent(CTEvent{Kind: EventNew, At: at(2), Epoch: 1, Flow: flow(model.ProtoUDP, "192.0.2.10:40001", "198.51.100.53:53")})
-	if s := m.Snapshot(); len(s.Dependencies) != 1 || !s.Limits.UnknownTruncated || s.Limits.Truncated {
-		t.Fatalf("%+v", s.Limits)
-	}
-}
-
 func TestStaleProcessSnapshotNotUsed(t *testing.T) {
 	m := newTestMachine(t, "m1", []string{"192.0.2.10"}, bigLimits)
 	m.SetEpoch(1)

@@ -12,10 +12,16 @@ func Classify(f CTFlow, ev FlowEvidence, li *ListenIndex, addrs AddrSet, host Ho
 	case o.Proto == model.ProtoTCP:
 		return classifyTCP(f, ev, li, addrs, host, now)
 	case o.Proto == model.ProtoUDP:
-		if addrs.Has(o.Src.Addr) && host.PortRangeLow > 0 &&
-			o.Src.Port >= host.PortRangeLow && o.Src.Port <= host.PortRangeHigh {
+		if addrs.Has(o.Src.Addr) && host.ephemeral(o.Src.Port) {
 			return Inference{Status: model.RoleKnown, Initiator: o.Src, Service: o.Dst,
 				Evidence: []model.Evidence{model.EvidencePortRange}, Confidence: model.ConfidenceLow}
+		}
+		// A first packet from outside to a bound, non-ephemeral local port: a UDP server.
+		// Bound ephemeral ports are excluded because clients using sendto look the same.
+		if addrs.Has(o.Dst.Addr) && !addrs.Has(o.Src.Addr) && host.PortRangeLow > 0 && !host.ephemeral(o.Dst.Port) &&
+			li.UDPBound(o.Dst, now, host.ListenMaxAge) {
+			return Inference{Status: model.RoleKnown, Initiator: o.Src, Service: o.Dst,
+				Evidence: []model.Evidence{model.EvidenceUDPBound}, Confidence: model.ConfidenceLow}
 		}
 	case o.Proto.IsICMP():
 		return Inference{Status: model.RoleKnown,

@@ -31,6 +31,10 @@ type HostContext struct {
 	ListenMaxAge  time.Duration
 }
 
+func (h HostContext) ephemeral(port uint16) bool {
+	return h.PortRangeLow > 0 && port >= h.PortRangeLow && port <= h.PortRangeHigh
+}
+
 type AddrSet interface {
 	Has(netip.Addr) bool
 }

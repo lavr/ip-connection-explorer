@@ -91,10 +91,10 @@ func Write(w io.Writer, summary io.Writer, in *Input, opt Options) error {
 	}
 	incomplete, truncated := 0, 0
 	for _, s := range status {
-		switch s {
-		case "incomplete":
+		if strings.Contains(s, "incomplete") {
 			incomplete++
-		case "truncated":
+		}
+		if strings.Contains(s, "truncated") {
 			truncated++
 		}
 	}
@@ -117,20 +117,27 @@ func roleMatches(s model.RoleStatus, role string) bool {
 func coverageByRun(runs []checkpoint.File) map[string]string {
 	out := map[string]string{}
 	for _, r := range runs {
-		st := "complete"
-		open := false
-		for _, g := range r.Coverage.Gaps {
-			if g.To.IsZero() {
-				open = true
+		c := r.Coverage
+		incomplete := c.HistoryIncomplete || (c.EventsSysctl != 1 && c.EventsSysctl != 2)
+		for _, g := range c.Gaps {
+			if g.Kind == model.GapMap && g.To.IsZero() {
+				incomplete = true
 			}
 		}
-		switch {
-		case r.Limits.Truncated || r.Limits.UnknownTruncated:
-			st = "truncated"
-		case r.Coverage.HistoryIncomplete || open:
-			st = "incomplete"
+		if n := len(c.Intervals); n == 0 || c.Intervals[n-1].To.IsZero() {
+			incomplete = true
 		}
-		out[r.Run.RunID] = st
+		truncated := r.Limits.Truncated || r.Limits.UnknownTruncated
+		switch {
+		case incomplete && truncated:
+			out[r.Run.RunID] = "incomplete+truncated"
+		case truncated:
+			out[r.Run.RunID] = "truncated"
+		case incomplete:
+			out[r.Run.RunID] = "incomplete"
+		default:
+			out[r.Run.RunID] = "complete"
+		}
 	}
 	return out
 }

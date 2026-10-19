@@ -20,10 +20,17 @@ func ep(s string) model.Endpoint {
 	return model.Endpoint{Addr: ap.Addr(), Port: ap.Port()}
 }
 
+func addr(s string) netip.Addr {
+	if s == "" {
+		return netip.Addr{}
+	}
+	return netip.MustParseAddr(s)
+}
+
 func known(machine, run string, dir model.Direction, init, svc string, port uint16, orig model.Tuple) model.Dependency {
 	return model.Dependency{
 		Key: model.DepKey{Scope: "global", Family: 4, Proto: model.ProtoTCP, Status: model.RoleKnown,
-			Initiator: netip.MustParseAddr(init), Service: netip.MustParseAddr(svc), ServicePort: port},
+			Initiator: addr(init), Service: addr(svc), ServicePort: port},
 		Observer:  model.ObserverRef{Hostname: "host-" + machine, MachineID: machine, RunID: run},
 		Direction: dir, FirstSeen: t0, LastSeen: t0, FlowsObserved: 1,
 		Sources: []model.Source{model.SourceEvent}, Evidence: []model.Evidence{model.EvidenceConntrackNew},
@@ -137,6 +144,21 @@ func TestConflictOnSameTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(m.Conflicts) != 1 || len(m.Conflicts[0].Observers) != 2 {
+		t.Fatalf("%+v", m.Conflicts)
+	}
+}
+
+func TestUnknownIsNotAConflict(t *testing.T) {
+	orig := model.Tuple{Src: ep("192.0.2.10:40000"), Dst: ep("198.51.100.53:5353"), Proto: model.ProtoUDP}
+	client := known("ma", "ra", model.DirOutbound, "192.0.2.10", "198.51.100.53", 5353, orig)
+	client.Key.Proto = model.ProtoUDP
+	server := known("mb", "rb", model.DirInbound, "", "", 0, orig)
+	server.Key = model.DepKey{Scope: "global", Family: 4, Proto: model.ProtoUDP, Status: model.RoleUnknown, A: orig.Src, B: orig.Dst}
+	m, err := Merge([]*checkpoint.File{file("ma", "ra", 1, client), file("mb", "rb", 1, server)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Conflicts) != 0 {
 		t.Fatalf("%+v", m.Conflicts)
 	}
 }

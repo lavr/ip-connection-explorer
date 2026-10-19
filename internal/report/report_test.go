@@ -47,7 +47,8 @@ func sampleInput() *Input {
 		Initiator: netip.MustParseAddr("198.51.100.1"), Service: netip.MustParseAddr("203.0.113.5"), ServicePort: 80},
 		model.DirForwarded, model.ConfidenceMedium, model.EvidenceConntrackOriginal)
 	return &Input{
-		Runs:         []checkpoint.File{{Run: checkpoint.Run{RunID: "r1"}, Host: checkpoint.Host{MachineID: "m1"}}},
+		Runs: []checkpoint.File{{Run: checkpoint.Run{RunID: "r1"}, Host: checkpoint.Host{MachineID: "m1"},
+			Coverage: model.Coverage{EventsSysctl: 1, Intervals: []model.Interval{{From: t0, To: t0.Add(time.Hour)}}}}},
 		Dependencies: []model.Dependency{tcp, udp, icmp, lo, fwd},
 	}
 }
@@ -134,7 +135,7 @@ func TestCoverageStatus(t *testing.T) {
 	}
 	in.Runs[0].Limits.Truncated = true
 	got, _ = render(t, in, Options{Format: "csv", Role: "known"})
-	if r := rows(t, got); r[1][23] != "truncated" {
+	if r := rows(t, got); r[1][23] != "incomplete+truncated" {
 		t.Fatalf("%v", r[1])
 	}
 }

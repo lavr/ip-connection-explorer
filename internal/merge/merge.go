@@ -128,6 +128,9 @@ func conflicts(deps []model.Dependency) []Conflict {
 		views := map[roleView]bool{}
 		observers := map[string]bool{}
 		for _, e := range es {
+			if e.key.Status == model.RoleUnknown {
+				continue
+			}
 			views[roleView{e.key.Status, e.key.Initiator, e.key.Service, e.key.ServicePort}] = true
 			observers[e.obs.MachineID+"/"+e.obs.RunID] = true
 		}

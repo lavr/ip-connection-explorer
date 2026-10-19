@@ -71,6 +71,41 @@ type tomb struct {
 	ctID uint32
 }
 
+type tombRef struct {
+	id flowID
+	at time.Time
+}
+
+const sweepEvery = 1024
+
+func (m *Machine) addTomb(id flowID, t tomb) {
+	m.tombs[id] = t
+	m.tombQ = append(m.tombQ, tombRef{id, t.at})
+	if m.lim.MaxActive > 0 && len(m.tombs) > m.lim.MaxActive {
+		m.sweepTombs(t.at)
+		for len(m.tombs) > m.lim.MaxActive && len(m.tombQ) > 0 {
+			m.popTomb()
+			m.Count("tombstones_evicted", 1)
+		}
+	}
+}
+
+func (m *Machine) popTomb() {
+	r := m.tombQ[0]
+	m.tombQ = m.tombQ[1:]
+	if t, ok := m.tombs[r.id]; ok && t.at.Equal(r.at) {
+		delete(m.tombs, r.id)
+	}
+}
+
+// sweepTombs drops tombstones older than the TTL; the queue is in insertion order.
+func (m *Machine) sweepTombs(now time.Time) {
+	for len(m.tombQ) > 0 && now.Sub(m.tombQ[0].at) > m.tombstoneTTL {
+		m.popTomb()
+	}
+	m.sinceSweep = 0
+}
+
 func idOf(f CTFlow) flowID { return flowID{f.Orig, f.Reply} }
 
 type activeFlow struct {
@@ -104,6 +139,8 @@ type Machine struct {
 	addrs       map[netip.Addr]*AddrSeen
 	active      map[flowID]*activeFlow
 	tombs       map[flowID]tomb
+	tombQ       []tombRef
+	sinceSweep  int
 	records     map[model.DepKey]*agg
 	refs        map[model.DepKey]int
 	knownKeys   int
@@ -210,7 +247,10 @@ func (m *Machine) ApplyEvent(ev CTEvent) {
 	if ev.Kind == EventDestroy {
 		f.destroyEv++
 		m.finish(f)
-		m.tombs[id] = tomb{at: ev.At, ctID: ev.Flow.ID}
+		m.addTomb(id, tomb{at: ev.At, ctID: ev.Flow.ID})
+	}
+	if m.sinceSweep++; m.sinceSweep >= sweepEvery {
+		m.sweepTombs(ev.At)
 	}
 }
 
@@ -255,15 +295,11 @@ func (m *Machine) ApplyDump(res DumpResult) {
 		for id, f := range m.active {
 			if !seen[id] && f.touched.Before(res.Started) {
 				m.finish(f)
-				m.tombs[id] = tomb{at: res.Started, ctID: f.ct.ID}
+				m.addTomb(id, tomb{at: res.Started, ctID: f.ct.ID})
 			}
 		}
 	}
-	for id, tb := range m.tombs {
-		if res.Finished.Sub(tb.at) > m.tombstoneTTL {
-			delete(m.tombs, id)
-		}
-	}
+	m.sweepTombs(res.Finished)
 }
 
 func (m *Machine) ApplySockets(s SockSnapshot) {
@@ -382,13 +418,14 @@ func (m *Machine) reclassify(f *activeFlow, now time.Time) {
 	if f.attached && f.key == key {
 		return
 	}
+	if !m.acquire(key, now) {
+		// Keep the flow on its previous record rather than dropping what was already observed.
+		return
+	}
 	if f.attached {
 		m.release(f.key)
-		f.attached = false
 	}
-	if m.acquire(key, now) {
-		f.key, f.attached = key, true
-	}
+	f.key, f.attached = key, true
 }
 
 func (m *Machine) acquire(key model.DepKey, at time.Time) bool {
@@ -423,9 +460,9 @@ func (m *Machine) release(key model.DepKey) {
 	}
 }
 
-// unknownBudget: unknown, conflict and low-confidence records keep both ports and share the
-// unknown budget, so a busy client cannot exhaust the space for confirmed dependencies.
-func unknownBudget(k model.DepKey) bool { return k.Status != model.RoleKnown || k.A.Addr.IsValid() }
+// unknownBudget: unknown and conflict records keep both ports and use their own budget, so they
+// cannot exhaust the space for dependencies with a known role.
+func unknownBudget(k model.DepKey) bool { return k.Status != model.RoleKnown }
 
 func (m *Machine) direction(f *activeFlow) model.Direction {
 	o, r := f.ct.Orig, f.ct.Reply
@@ -466,14 +503,19 @@ func (m *Machine) keyFor(f *activeFlow) model.DepKey {
 		} else {
 			k.ServicePort = f.inf.Service.Port
 		}
-		if f.inf.Confidence == model.ConfidenceLow && !o.Proto.IsICMP() {
-			k.A, k.B = normEP(o.Src), normEP(o.Dst)
-		}
 		return k
 	}
 	// Endpoints keep the original orientation, so opposite first packets stay separate records.
-	k.A, k.B = normEP(o.Src), normEP(o.Dst)
+	// A local ephemeral port is recorded as 0, or every client query would be its own record.
+	k.A, k.B = m.collapse(normEP(o.Src)), m.collapse(normEP(o.Dst))
 	return k
+}
+
+func (m *Machine) collapse(e model.Endpoint) model.Endpoint {
+	if m.Has(e.Addr) && m.host.ephemeral(e.Port) {
+		e.Port = 0
+	}
+	return e
 }
 
 func normEP(e model.Endpoint) model.Endpoint {

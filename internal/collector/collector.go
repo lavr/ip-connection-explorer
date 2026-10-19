@@ -117,6 +117,11 @@ type runner struct {
 	procC chan procDone
 	ckC   chan error
 	busy  map[string]bool
+	since map[string]time.Time
+	stuck map[string]bool
+
+	baselineDone bool
+	wantResync   bool
 }
 
 func now() time.Time { return time.Now().UTC() }
@@ -162,6 +167,8 @@ func Run(ctx context.Context, cfg Config, src Sources, log *slog.Logger) int {
 		procC:   make(chan procDone, 1),
 		ckC:     make(chan error, 1),
 		busy:    map[string]bool{},
+		since:   map[string]time.Time{},
+		stuck:   map[string]bool{},
 	}
 	return r.run(ctx)
 }
@@ -188,7 +195,7 @@ func (r *runner) run(ctx context.Context) int {
 		r.listenerFailed(err)
 	} else {
 		r.sub = sub
-		r.resync(ctx, true)
+		r.resync(ctx)
 	}
 
 	tick := func(d time.Duration) *time.Ticker {
@@ -228,24 +235,31 @@ func (r *runner) run(ctx context.Context) int {
 			r.retry = nil
 			r.resubscribe(ctx)
 		case <-dumpT.C:
+			r.checkStuck("dump", r.cfg.DumpEvery)
 			r.startDump(ctx)
 		case d := <-r.dumpC:
-			r.busy["dump"] = false
+			r.done("dump")
 			r.applyDump(d)
+			if r.wantResync {
+				r.startDump(ctx)
+			}
 		case <-sockT.C:
+			r.checkStuck("sock", r.cfg.SockEvery)
 			r.startSockets()
 		case s := <-r.sockC:
-			r.busy["sock"] = false
+			r.done("sock")
 			r.applySockets(s)
 		case <-procT.C:
+			r.checkStuck("proc", r.cfg.ProcEvery)
 			r.startProcs()
 		case p := <-r.procC:
-			r.busy["proc"] = false
+			r.done("proc")
 			r.applyProcs(p)
 		case <-ckT.C:
+			r.checkStuck("ck", r.cfg.CheckpointEvery)
 			r.startCheckpoint()
 		case err := <-r.ckC:
-			r.busy["ck"] = false
+			r.done("ck")
 			r.checkpointDone(err)
 		}
 	}
@@ -318,19 +332,47 @@ func (r *runner) resubscribe(ctx context.Context) {
 		return
 	}
 	r.sub = sub
-	r.resync(ctx, false)
+	r.resync(ctx)
 }
 
-// resync runs a full dump right after a subscription is in place and closes the map gap if
-// the dump was complete. The dump runs inline so that its result is fenced by the new epoch.
-func (r *runner) resync(ctx context.Context, baseline bool) {
-	r.attempt++
-	res, st, err := r.src.Dump(ctx, r.attempt, r.epoch, baseline)
-	r.applyDump(dumpDone{res: res, st: st, err: err})
-	if err == nil && res.Complete {
-		r.failures = 0
-		if r.m.HasOpenGap(model.GapMap) {
-			r.m.CloseGap(model.GapMap, now())
+// resync asks for a full dump under the current epoch. It runs like any other dump, so the
+// loop keeps reading events meanwhile; the map gap closes when a complete dump of the current
+// epoch arrives.
+func (r *runner) resync(ctx context.Context) {
+	r.wantResync = true
+	r.startDump(ctx)
+}
+
+func (r *runner) begin(kind string) {
+	r.busy[kind] = true
+	r.since[kind] = now()
+}
+
+func (r *runner) done(kind string) {
+	r.busy[kind] = false
+	r.stuck[kind] = false
+}
+
+// checkStuck opens a gap for a job that has been running for more than three intervals.
+func (r *runner) checkStuck(kind string, every time.Duration) {
+	if !r.busy[kind] || r.stuck[kind] || now().Sub(r.since[kind]) <= 3*every {
+		return
+	}
+	r.markStuck(kind)
+}
+
+func (r *runner) markStuck(kind string) {
+	r.stuck[kind] = true
+	r.m.Count(kind+"_stuck", 1)
+	r.log.Warn("job is stuck", "job", kind, "since", r.since[kind])
+	switch kind {
+	case "sock":
+		r.setAttribution(&r.sockFailing, true, "sock_stuck")
+	case "proc":
+		r.setAttribution(&r.procFailing, true, "proc_stuck")
+	case "dump":
+		if !r.m.HasOpenGap(model.GapMap) {
+			r.m.OpenGap(model.GapMap, "dump_stuck", now())
 		}
 	}
 }
@@ -340,11 +382,13 @@ func (r *runner) startDump(ctx context.Context) {
 		r.m.Count("skipped_dump", 1)
 		return
 	}
-	r.busy["dump"] = true
+	r.begin("dump")
 	r.attempt++
-	attempt, epoch := r.attempt, r.epoch
+	attempt, epoch, baseline := r.attempt, r.epoch, !r.baselineDone
+	r.baselineDone = true
+	r.wantResync = false
 	go func() {
-		res, st, err := r.src.Dump(ctx, attempt, epoch, false)
+		res, st, err := r.src.Dump(ctx, attempt, epoch, baseline)
 		r.dumpC <- dumpDone{res, st, err}
 	}()
 }
@@ -361,6 +405,12 @@ func (r *runner) applyDump(d dumpDone) {
 		r.m.Count("dump_incomplete", 1)
 	}
 	r.m.ApplyDump(d.res)
+	if d.res.Complete && d.res.Epoch == r.epoch && r.sub != nil && r.retry == nil {
+		r.failures = 0
+		if r.m.HasOpenGap(model.GapMap) {
+			r.m.CloseGap(model.GapMap, now())
+		}
+	}
 	if r.raw != nil {
 		r.rawWrite(map[string]any{"at": d.res.Finished, "run_id": r.runID, "epoch": d.res.Epoch, "source": "dump",
 			"attempt": d.res.Attempt, "complete": d.res.Complete, "flows": len(d.res.Flows)})
@@ -381,7 +431,7 @@ func (r *runner) startSockets() {
 		r.m.Count("skipped_sock", 1)
 		return
 	}
-	r.busy["sock"] = true
+	r.begin("sock")
 	go func() { r.sockC <- r.collectSockets(now()) }()
 }
 
@@ -411,7 +461,7 @@ func (r *runner) startProcs() {
 		r.m.Count("skipped_proc", 1)
 		return
 	}
-	r.busy["proc"] = true
+	r.begin("proc")
 	go func() { r.procC <- r.collectProcs(now()) }()
 }
 
@@ -464,7 +514,7 @@ func (r *runner) startCheckpoint() {
 		r.m.Count("skipped_checkpoint", 1)
 		return
 	}
-	r.busy["ck"] = true
+	r.begin("ck")
 	f := r.file()
 	go func() {
 		_, err := r.cfg.Write(r.cfg.StateDir, f)
@@ -496,20 +546,26 @@ func (r *runner) shutdown() int {
 	for r.busy["dump"] || r.busy["sock"] || r.busy["proc"] || r.busy["ck"] {
 		select {
 		case d := <-r.dumpC:
-			r.busy["dump"] = false
+			r.done("dump")
 			r.applyDump(d)
 		case s := <-r.sockC:
-			r.busy["sock"] = false
+			r.done("sock")
 			r.applySockets(s)
 		case p := <-r.procC:
-			r.busy["proc"] = false
+			r.done("proc")
 			r.applyProcs(p)
 		case err := <-r.ckC:
-			r.busy["ck"] = false
+			r.done("ck")
 			r.checkpointDone(err)
 		case <-wait.C:
-			r.log.Error("in-flight work did not finish before the shutdown timeout")
-			return ExitRuntime
+			r.log.Error("in-flight work did not finish before the shutdown timeout; writing what was collected")
+			for _, k := range []string{"dump", "sock", "proc", "ck"} {
+				if r.busy[k] {
+					r.markStuck(k)
+					r.busy[k] = false
+				}
+			}
+			code = ExitRuntime
 		}
 	}
 	end := now()

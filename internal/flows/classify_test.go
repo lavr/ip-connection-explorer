@@ -28,11 +28,14 @@ func TestUDPSendtoClientIsNotService(t *testing.T) {
 	}
 }
 
-func TestUDPInboundUnknown(t *testing.T) {
+func TestUDPInboundToBoundPortIsService(t *testing.T) {
 	f := flow(model.ProtoUDP, "198.51.100.7:40000", "192.0.2.10:5353")
 	inf := classifyAt(f, FlowEvidence{}, []Socket{{Proto: model.ProtoUDP, Local: ep("0.0.0.0:5353")}}, host)
-	if inf.Status != model.RoleUnknown || !hasEvidence(inf, model.EvidenceNone) {
+	if inf.Status != model.RoleKnown || inf.Service != ep("192.0.2.10:5353") || !hasEvidence(inf, model.EvidenceUDPBound) || inf.Confidence != model.ConfidenceLow {
 		t.Fatalf("%+v", inf)
+	}
+	if inf = classifyAt(f, FlowEvidence{}, nil, host); inf.Status != model.RoleUnknown {
+		t.Fatalf("unbound port: %+v", inf)
 	}
 }
 

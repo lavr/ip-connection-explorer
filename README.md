@@ -118,7 +118,7 @@ dependency usually appears twice: outbound on the client, inbound on the server.
 | `proto` | `tcp`, `udp`, `icmp`, `icmpv6` |
 | `initiator`, `service`, `service_port` | filled for known roles |
 | `icmp_type`, `icmp_code` | ICMP instead of a port |
-| `endpoint_a`, `port_a`, `endpoint_b`, `port_b` | both ports, original direction; for unknown, conflict and low confidence rows |
+| `endpoint_a`, `port_a`, `endpoint_b`, `port_b` | both ports in the original direction, for unknown and conflict rows; a local ephemeral port is shown as `0` |
 | `observer`, `run_id` | which host and run saw it |
 | `direction` | relative to the observer: `outbound`, `inbound`, `local`, `forwarded`, `unresolved` |
 | `confidence`, `evidence` | how the role was decided, see below |
@@ -126,7 +126,7 @@ dependency usually appears twice: outbound on the client, inbound on the server.
 | `first_seen`, `last_seen` | when the collector observed it, not when the connection started |
 | `flows_observed`, `flows_estimated` | connection lifetimes seen; estimated after gaps or restarts |
 | `ever_reply_seen` | a reply was seen at least once |
-| `coverage_status` | `complete`, `incomplete` (a gap happened) or `truncated` (a limit was hit) |
+| `coverage_status` | `complete`; `incomplete` (a gap, events disabled, or the run had not finished); `truncated` (a limit was hit); `incomplete+truncated` |
 
 Loopback, forwarded and unresolved (NAT) rows are hidden unless `--include-hidden` is given.
 `report` prints a summary to stderr with what was hidden and which runs are incomplete.
@@ -140,6 +140,7 @@ Loopback, forwarded and unresolved (NAT) rows are hidden unless `--include-hidde
 | `listen` | a listening socket on the service side confirms it |
 | `listen_contradicts` | the supposed client side listens on that port: role is `conflict` |
 | `port_range` | UDP from a local ephemeral port: a weak hint |
+| `udp_bound` | UDP from outside to a bound, non-ephemeral local port: a weak hint that it is a server |
 | `none` | nothing decides the role: `unknown` |
 
 `high` is confidence in the inferred role, not a promise that a firewall rule derived from it is
@@ -161,8 +162,8 @@ correct. Review the table before you send it anywhere.
 - **Current network namespace only.** Containers in their own namespaces are not observed.
 - **Crash window.** Data after the last checkpoint is lost if the host crashes.
 - **`--go-memory-limit`** is a soft target for the Go garbage collector, not a cap on memory.
-  The hard bounds are `--max-active`, `--max-known` and `--max-unknown`; when one is hit the
-  report says `truncated`.
+  The hard bounds are `--max-active` (which also caps tombstones of closed flows),
+  `--max-known` and `--max-unknown`; when one is hit the report says `truncated`.
 - Absence of traffic during the run is not proof that a dependency does not exist.
 
 ## Tested on
