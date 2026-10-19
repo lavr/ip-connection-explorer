@@ -25,6 +25,8 @@ func runCollect(args []string, stdout, stderr io.Writer) int {
 	duration := fs.String("duration", "7d", "how long to collect (e.g. 7d, 36h)")
 	stateDir := fs.String("state-dir", "/var/lib/ipcx", "directory for checkpoints and the lock file")
 	ckEvery := fs.String("checkpoint", "2m", "checkpoint interval")
+	dumpEvery := fs.String("dump-every", "5m", "interval between full conntrack dumps")
+	snapEvery := fs.String("snapshot-every", "60s", "interval between socket and process snapshots")
 	raw := fs.Bool("raw", false, "also keep a rotated raw journal of events and dump markers")
 	memLimit := fs.String("go-memory-limit", "", "soft Go runtime memory limit (e.g. 512MiB); not a cap on RSS")
 	maxActive := fs.Int("max-active", 200000, "maximum active flows")
@@ -49,6 +51,16 @@ func runCollect(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "ipcx collect: --checkpoint: %v\n", err)
 		return exitUsage
 	}
+	dumpIv, err := parseDuration(*dumpEvery)
+	if err != nil {
+		fmt.Fprintf(stderr, "ipcx collect: --dump-every: %v\n", err)
+		return exitUsage
+	}
+	snapIv, err := parseDuration(*snapEvery)
+	if err != nil {
+		fmt.Fprintf(stderr, "ipcx collect: --snapshot-every: %v\n", err)
+		return exitUsage
+	}
 	if *memLimit != "" {
 		n, err := parseSize(*memLimit)
 		if err != nil {
@@ -61,9 +73,9 @@ func runCollect(args []string, stdout, stderr io.Writer) int {
 	cfg := collector.Config{
 		Duration:        dur,
 		CheckpointEvery: ck,
-		DumpEvery:       5 * time.Minute,
-		SockEvery:       time.Minute,
-		ProcEvery:       time.Minute,
+		DumpEvery:       dumpIv,
+		SockEvery:       snapIv,
+		ProcEvery:       snapIv,
 		ShutdownTimeout: 30 * time.Second,
 		StateDir:        *stateDir,
 		Backoff:         []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second, 30 * time.Second},
