@@ -442,16 +442,16 @@ func (r *runner) applyDump(d dumpDone) {
 	if !d.res.Complete {
 		r.m.Count("dump_incomplete", 1)
 	}
-	r.m.ApplyDump(d.res)
-	if d.res.Complete && !r.ready {
-		r.ready = true
-		r.refreshExporter()
-	}
+	applied := r.m.ApplyDump(d.res)
 	if d.res.Complete && d.res.Epoch == r.epoch && r.sub != nil && r.retry == nil {
 		r.failures = 0
 		if r.m.HasOpenGap(model.GapMap) {
 			r.m.CloseGap(model.GapMap, now())
 		}
+	}
+	if applied && d.res.Complete && !r.ready {
+		r.ready = true
+		r.refreshExporter()
 	}
 	if r.raw != nil {
 		r.rawWrite(map[string]any{"at": d.res.Finished, "run_id": r.runID, "epoch": d.res.Epoch, "source": "dump",

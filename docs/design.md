@@ -381,8 +381,9 @@ incomplete or truncated. Exit code stays 0; the summary is informational.
 
 `collect --prometheus-exporter.listen ADDR` keeps a second, permanent view of the same flows.
 Without an explicit `--duration` the run has no end and writes no checkpoint; the machine then
-keeps no dependency records and drops closed gaps (`DisableReport`), so memory is bounded by the
-active table, tombstones and the exporter table.
+keeps no dependency records and drops closed gaps (`DisableReport`). Memory is then bounded by
+the active table, tombstones and the exporter table, plus the set of host addresses ever seen,
+which is not bounded.
 
 - **Labels** come from the current inference of a flow, computed in `reclassify` before the
   report budget is checked. A full `--max-known` keeps the old record for the report but does

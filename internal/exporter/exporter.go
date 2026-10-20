@@ -89,9 +89,15 @@ func (t *Table) Refresh(active map[flows.Labels]int, h flows.Health, ready bool,
 	}
 	t.expire(now)
 	t.lastSweep = now
+	// A full table admits nothing, so the candidates are only counted, not sorted.
 	var fresh []flows.Labels
+	full := len(t.series) >= t.max
 	for l, n := range active {
 		if n > 0 && t.series[l] == nil {
+			if full {
+				t.rejected++
+				continue
+			}
 			fresh = append(fresh, l)
 		}
 	}

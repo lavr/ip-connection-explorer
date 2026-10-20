@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-// metricsServer serves only the metrics path: no default mux, so nothing else (pprof) leaks.
+// metricsServer serves only the metrics path, compared literally: no ServeMux pattern parsing
+// and no default mux, so nothing else (pprof) is exposed.
 type metricsServer struct {
 	srv    *http.Server
 	addr   net.Addr
@@ -21,10 +22,15 @@ func startMetricsServer(addr, path string, h http.Handler) (*metricsServer, erro
 	if err != nil {
 		return nil, err
 	}
-	mux := http.NewServeMux()
-	mux.Handle(path, h)
+	only := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			http.NotFound(w, r)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 	ms := &metricsServer{
-		srv: &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
+		srv: &http.Server{Handler: only, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 			WriteTimeout: 30 * time.Second, IdleTimeout: time.Minute},
 		addr:   ln.Addr(),
 		failed: make(chan error, 1),

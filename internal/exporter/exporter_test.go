@@ -216,3 +216,29 @@ func TestConcurrentScrapesAndUpdates(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// BenchmarkRefreshFullTable measures a refresh with 200k active label sets against a full
+// 10k table, the worst case of --max-active and --prometheus-exporter.max-series.
+func BenchmarkRefreshFullTable(b *testing.B) {
+	act := make(map[flows.Labels]int, 200000)
+	for i := range 200000 {
+		act[lbl(netip.AddrFrom4([4]byte{198, 51, byte(i >> 16), byte(i >> 8)}).String(), uint16(i))] = 1
+	}
+	tb := New(time.Hour, 10000, BuildInfo{})
+	tb.Refresh(act, flows.Health{}, true, at(0))
+	b.ResetTimer()
+	for i := range b.N {
+		tb.Refresh(act, flows.Health{}, true, at(i+1))
+	}
+}
+
+func BenchmarkWriteTextFullTable(b *testing.B) {
+	tb := New(time.Hour, 10000, BuildInfo{})
+	for i := range 10000 {
+		tb.Finished(lbl(netip.AddrFrom4([4]byte{198, 51, byte(i >> 8), byte(i)}).String(), 443), at(0))
+	}
+	b.ResetTimer()
+	for range b.N {
+		_ = tb.WriteText(io.Discard)
+	}
+}

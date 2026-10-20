@@ -132,3 +132,21 @@ func TestExporterServerServesPathOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestExporterPathIsLiteral(t *testing.T) {
+	ms, err := startMetricsServer("127.0.0.1:0", "/metrics/{bad", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, "ok\n")
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ms.close()
+	resp, err := http.Get("http://" + ms.addr.String() + "/metrics/%7Bbad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("%d", resp.StatusCode)
+	}
+}

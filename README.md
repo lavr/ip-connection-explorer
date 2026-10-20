@@ -184,8 +184,16 @@ Connection labels:
   ephemeral port is shown as `0`, and so is the port of ICMP.
 
 A connection is counted in `finished_total` when it ends, so a pool that stays open for weeks
-shows only in `active`. To see who talks to whom, use both: a series that exists, or
-`max_over_time(ipcx_connections_active[1d]) > 0 or increase(ipcx_connections_finished_total[1d]) > 0`.
+shows only in `active`, and a single short connection may never be seen in `active`. The matrix
+is the set of series the exporter currently holds, whatever their values:
+
+```promql
+count by (instance, src_ip, dst_ip, dst_port, proto) (ipcx_connections_finished_total)
+```
+
+A pair stays in it until it has been idle for the TTL, so this is "seen within about the TTL",
+not an exact window. Check `ipcx_exporter_ready`, `ipcx_exporter_series_rejected_total` and
+`ipcx_gaps_total` before trusting that a pair is absent.
 Labels show the original conntrack view: behind NAT that is not necessarily the final backend.
 Counts from several hosts describe what each host observed; do not add them up as unique
 connections.

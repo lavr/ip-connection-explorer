@@ -292,10 +292,11 @@ func (m *Machine) ApplyEvent(ev CTEvent) {
 // kernel entry when the conntrack IDs match. A zero ID carries no information.
 func sameLifetime(a, b uint32) bool { return a != 0 && a == b }
 
-func (m *Machine) ApplyDump(res DumpResult) {
+// ApplyDump reports whether the dump was applied; a stale one is counted and ignored.
+func (m *Machine) ApplyDump(res DumpResult) bool {
 	if res.Epoch < m.epoch || (res.Attempt != 0 && res.Attempt <= m.lastAttempt) {
 		m.Count("stale_dumps", 1)
-		return
+		return false
 	}
 	if res.Attempt != 0 {
 		m.lastAttempt = res.Attempt
@@ -334,6 +335,7 @@ func (m *Machine) ApplyDump(res DumpResult) {
 		}
 	}
 	m.sweepTombs(res.Finished)
+	return true
 }
 
 func (m *Machine) ApplySockets(s SockSnapshot) {

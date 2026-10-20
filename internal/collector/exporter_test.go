@@ -126,3 +126,19 @@ func TestZeroDurationRunsUntilStopped(t *testing.T) {
 	}
 	readOnly(t, dir)
 }
+
+func TestStaleDumpDoesNotSetReady(t *testing.T) {
+	exp := &fakeExporter{}
+	r := &runner{cfg: Config{Exporter: exp}, log: quiet,
+		m: flows.NewMachine(flows.HostContext{MachineID: "m1"}, model.ObserverRef{}, flows.Limits{}, time.Minute, time.Minute)}
+	r.epoch = 2
+	r.m.SetEpoch(2)
+	r.applyDump(dumpDone{res: flows.DumpResult{Attempt: 1, Epoch: 1, Complete: true}})
+	if _, _, ready, _ := exp.state(); ready || r.ready {
+		t.Fatal("a dump the machine rejected made the exporter ready")
+	}
+	r.applyDump(dumpDone{res: flows.DumpResult{Attempt: 2, Epoch: 2, Complete: true}})
+	if _, _, ready, _ := exp.state(); !ready {
+		t.Fatal("an accepted complete dump did not make the exporter ready")
+	}
+}
