@@ -377,6 +377,28 @@ with every field, examples and per-observer data, plus the coverage of every inp
 `report` prints to stderr how many records were hidden and why, and whether any input run is
 incomplete or truncated. Exit code stays 0; the summary is informational.
 
+## Prometheus exporter (beta)
+
+`collect --prometheus-exporter.listen ADDR` keeps a second, permanent view of the same flows.
+Without an explicit `--duration` the run has no end and writes no checkpoint; the machine then
+keeps no dependency records and drops closed gaps (`DisableReport`), so memory is bounded by the
+active table, tombstones and the exporter table.
+
+- **Labels** come from the current inference of a flow, computed in `reclassify` before the
+  report budget is checked. A full `--max-known` keeps the old record for the report but does
+  not change what the exporter sees.
+- **Finished** is a hook in `finish`, called once per removed lifetime with the time of the
+  DESTROY event or of the complete dump that missed it. Shutdown does not finish active flows.
+- **Active** is sampled on the loop goroutine on its own timer (`--snapshot-every`), and once
+  right after the first complete dump, which also sets `ipcx_exporter_ready`.
+- **Table** (`internal/exporter`) holds at most `max-series` label sets. A refresh replaces all
+  active counts at once, expires idle sets (`active == 0` and last seen older than the TTL),
+  then admits new active sets in a fixed order. A new set on a full table reclaims expired
+  ones at most once a second, otherwise it is refused and counted.
+- **HTTP** uses its own mux with only the metrics path, server timeouts and at most two
+  concurrent scrapes; a scrape copies the table under the lock and formats outside it. If the
+  server stops after a successful bind, the collector stops with exit code 1.
+
 ## Testing
 
 ### Unit

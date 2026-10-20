@@ -2,13 +2,16 @@ package collector
 
 import (
 	"context"
+	"io"
 	"net/netip"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/lavr/ip-connection-explorer/internal/conntrack"
+	"github.com/lavr/ip-connection-explorer/internal/exporter"
 	"github.com/lavr/ip-connection-explorer/internal/flows"
 	"github.com/lavr/ip-connection-explorer/internal/model"
 	"github.com/lavr/ip-connection-explorer/internal/procindex"
@@ -21,6 +24,12 @@ func TestPipelineSustainsRate(t *testing.T) {
 	if os.Getenv("IPCX_LOAD") == "" {
 		t.Skip("set IPCX_LOAD=1 to run the load test")
 	}
+	t.Run("checkpoint", func(t *testing.T) { sustainRate(t, false) })
+	t.Run("exporter", func(t *testing.T) { sustainRate(t, true) })
+}
+
+// sustainRate with an exporter also ends some flows and scrapes the table while it runs.
+func sustainRate(t *testing.T, withExporter bool) {
 	const (
 		flowsN   = 50000
 		socketsN = 10000
@@ -81,6 +90,8 @@ func TestPipelineSustainsRate(t *testing.T) {
 					kind := flows.EventUpdate
 					if sent%10 == 0 {
 						kind = flows.EventNew
+					} else if withExporter && sent%10 == 5 {
+						kind = flows.EventDestroy
 					}
 					ev := flows.CTEvent{Kind: kind, At: now, Epoch: 1, Flow: flowAt((sent * 7919) % flowsN)}
 					offered.Add(1)
@@ -98,6 +109,17 @@ func TestPipelineSustainsRate(t *testing.T) {
 	cfg.Duration = duration + 2*time.Second
 	cfg.CheckpointEvery, cfg.DumpEvery, cfg.SockEvery, cfg.ProcEvery = time.Second, 3*time.Second, time.Second, time.Second
 	cfg.Limits = flows.Limits{MaxActive: 200000, MaxKnown: 100000, MaxUnknown: 50000, MaxProcesses: 5, MaxExamples: 3}
+	var table *exporter.Table
+	if withExporter {
+		table = exporter.New(time.Hour, 10000, exporter.BuildInfo{})
+		cfg.Exporter = table
+		go func() {
+			for ctx.Err() == nil {
+				_ = table.WriteText(io.Discard)
+				time.Sleep(100 * time.Millisecond)
+			}
+		}()
+	}
 	done := runAsync(ctx, cfg, src)
 	var code int
 	select {
@@ -121,4 +143,11 @@ func TestPipelineSustainsRate(t *testing.T) {
 		t.Fatalf("coverage: %+v", f.Coverage)
 	}
 	t.Logf("offered=%d dropped=%d deps=%d", offered.Load(), dropped.Load(), len(f.Dependencies))
+	if withExporter {
+		var b strings.Builder
+		_ = table.WriteText(&b)
+		if !strings.Contains(b.String(), "ipcx_exporter_ready 1") || !strings.Contains(b.String(), "ipcx_connections_finished_total{") {
+			t.Fatalf("exporter output:\n%.2000s", b.String())
+		}
+	}
 }

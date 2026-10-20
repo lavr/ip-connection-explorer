@@ -48,7 +48,15 @@ type RawSink interface {
 	Close() error
 }
 
+// Exporter receives every finished connection and periodic samples of the active ones.
+type Exporter interface {
+	Finished(l flows.Labels, at time.Time)
+	Refresh(active map[flows.Labels]int, h flows.Health, ready bool, now time.Time)
+	CheckpointWritten(at time.Time)
+}
+
 type Config struct {
+	// Duration 0 runs until stopped.
 	Duration        time.Duration
 	CheckpointEvery time.Duration
 	DumpEvery       time.Duration
@@ -63,6 +71,10 @@ type Config struct {
 	Version, Commit string
 	Params          map[string]string
 	Write           func(dir string, f *checkpoint.File) (string, error)
+	Exporter        Exporter
+	// NoCheckpoint writes no checkpoint and keeps no report state; only the lock file is
+	// created in StateDir.
+	NoCheckpoint bool
 }
 
 func (c *Config) defaults() {
@@ -125,6 +137,7 @@ type runner struct {
 
 	baselineDone bool
 	wantResync   bool
+	ready        bool
 }
 
 func now() time.Time { return time.Now().UTC() }
@@ -187,6 +200,12 @@ func (r *runner) run(ctx context.Context) int {
 		r.m.SetEventsSysctl(-1)
 	}
 	r.m.StartInterval(r.started)
+	if r.cfg.NoCheckpoint {
+		r.m.DisableReport()
+	}
+	if r.cfg.Exporter != nil {
+		r.m.OnFinish(r.cfg.Exporter.Finished)
+	}
 
 	now := now()
 	r.applySockets(r.collectSockets(now))
@@ -207,13 +226,27 @@ func (r *runner) run(ctx context.Context) int {
 		}
 		return time.NewTicker(d)
 	}
-	dumpT, sockT, procT, ckT := tick(r.cfg.DumpEvery), tick(r.cfg.SockEvery), tick(r.cfg.ProcEvery), tick(r.cfg.CheckpointEvery)
+	dumpT, sockT, procT := tick(r.cfg.DumpEvery), tick(r.cfg.SockEvery), tick(r.cfg.ProcEvery)
 	defer dumpT.Stop()
 	defer sockT.Stop()
 	defer procT.Stop()
-	defer ckT.Stop()
-	deadline := time.NewTimer(r.cfg.Duration)
-	defer deadline.Stop()
+	// A nil channel never fires: no checkpoints, no deadline or no exporter refresh.
+	var ckC, deadlineC, expC <-chan time.Time
+	if !r.cfg.NoCheckpoint {
+		ckT := tick(r.cfg.CheckpointEvery)
+		defer ckT.Stop()
+		ckC = ckT.C
+	}
+	if r.cfg.Duration > 0 {
+		deadline := time.NewTimer(r.cfg.Duration)
+		defer deadline.Stop()
+		deadlineC = deadline.C
+	}
+	if r.cfg.Exporter != nil {
+		expT := tick(r.cfg.SockEvery)
+		defer expT.Stop()
+		expC = expT.C
+	}
 
 	for !r.fatal {
 		var events <-chan flows.CTEvent
@@ -224,7 +257,7 @@ func (r *runner) run(ctx context.Context) int {
 		select {
 		case <-ctx.Done():
 			return r.shutdown()
-		case <-deadline.C:
+		case <-deadlineC:
 			return r.shutdown()
 		case ev, ok := <-events:
 			if !ok {
@@ -258,7 +291,9 @@ func (r *runner) run(ctx context.Context) int {
 		case p := <-r.procC:
 			r.done("proc")
 			r.applyProcs(p)
-		case <-ckT.C:
+		case <-expC:
+			r.refreshExporter()
+		case <-ckC:
 			r.checkStuck("ck", r.cfg.CheckpointEvery)
 			r.startCheckpoint()
 		case err := <-r.ckC:
@@ -408,6 +443,10 @@ func (r *runner) applyDump(d dumpDone) {
 		r.m.Count("dump_incomplete", 1)
 	}
 	r.m.ApplyDump(d.res)
+	if d.res.Complete && !r.ready {
+		r.ready = true
+		r.refreshExporter()
+	}
 	if d.res.Complete && d.res.Epoch == r.epoch && r.sub != nil && r.retry == nil {
 		r.failures = 0
 		if r.m.HasOpenGap(model.GapMap) {
@@ -534,6 +573,18 @@ func (r *runner) checkpointDone(err error) {
 	t := now()
 	r.lastOK = &t
 	r.written = true
+	if r.cfg.Exporter != nil {
+		r.cfg.Exporter.CheckpointWritten(t)
+	}
+}
+
+// refreshExporter samples active connections on the loop goroutine; it runs on its own
+// timer, so a failing socket snapshot does not stop it.
+func (r *runner) refreshExporter() {
+	if r.cfg.Exporter == nil {
+		return
+	}
+	r.cfg.Exporter.Refresh(r.m.ActiveLabels(), r.m.Health(), r.ready, now())
 }
 
 // shutdown follows the order in the design: stop the listener while draining it, collect
@@ -583,16 +634,25 @@ func (r *runner) shutdown() int {
 		}
 	}
 	r.m.EndInterval(end)
+	if r.cfg.NoCheckpoint {
+		stage("done without checkpoint")
+		r.closeRaw()
+		return code
+	}
 	if _, err := r.cfg.Write(r.cfg.StateDir, r.file()); err != nil {
 		r.log.Error("final checkpoint write failed", "err", err, "last_successful", r.lastOK)
 		return ExitRuntime
 	}
 	r.written = true
 	stage("final checkpoint written")
+	r.closeRaw()
+	return code
+}
+
+func (r *runner) closeRaw() {
 	if r.raw != nil {
 		if err := r.raw.Close(); err != nil {
 			r.log.Warn("raw journal close failed", "err", err)
 		}
 	}
-	return code
 }

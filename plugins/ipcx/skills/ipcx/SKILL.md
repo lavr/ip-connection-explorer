@@ -105,6 +105,14 @@ needs it, so hosts without stateful firewall rules (often load balancers and web
 - Collect elsewhere: the peers that do track connections see this host's traffic from their side.
 - Use other sources for that host: proxy access logs, `ss` snapshots.
 
+## Permanent matrix in Prometheus (beta)
+
+When the user wants the matrix all the time rather than for one window, `collect
+--prometheus-exporter.listen ADDR` serves it for Prometheus. Without `--duration` it runs until
+stopped and writes no checkpoint. The port has no TLS or authentication: ask which address to
+bind and who may scrape it before starting it. Flags, metrics and caveats:
+`references/running.md`.
+
 ## Privacy
 
 Checkpoints and reports contain host names, machine IDs, addresses and process names. Keep them

@@ -46,6 +46,7 @@ internal/flows           the state machine: lifetimes, classification, socket in
 internal/collector       run loop: sources, resync, stuck jobs, preflight, shutdown order
 internal/checkpoint      schema, atomic write with generation fence, lock file
 internal/rawlog          optional rotated raw journal (--raw)
+internal/exporter        beta Prometheus exporter: bounded series table, text format, handler
 internal/merge           merge checkpoints from several runs
 internal/report          CSV and JSON output, filters, summary
 test/integration         privileged network-namespace test (real kernel, nftables)

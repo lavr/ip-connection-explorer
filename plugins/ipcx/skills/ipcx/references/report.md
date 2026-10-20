@@ -4,11 +4,11 @@
 
 | Command | Flags (defaults) |
 |---|---|
-| `ipcx collect` | `--duration 7d`, `--state-dir /var/lib/ipcx`, `--checkpoint 2m`, `--dump-every 5m`, `--snapshot-every 60s`, `--raw`, `--go-memory-limit SIZE`, `--max-active 200000`, `--max-known 100000`, `--max-unknown 50000`, `--allow-no-events`, `--check`, `--cpuprofile FILE`, `--memprofile FILE` |
+| `ipcx collect` | `--duration 7d`, `--state-dir /var/lib/ipcx`, `--checkpoint 2m`, `--dump-every 5m`, `--snapshot-every 60s`, `--raw`, `--go-memory-limit SIZE`, `--max-active 200000`, `--max-known 100000`, `--max-unknown 50000`, `--allow-no-events`, `--check`, `--cpuprofile FILE`, `--memprofile FILE`, beta: `--prometheus-exporter.listen ADDR`, `--prometheus-exporter.path /metrics`, `--prometheus-exporter.ttl 24h`, `--prometheus-exporter.max-series 10000` |
 | `ipcx merge FILE... -o OUT` | |
 | `ipcx report FILE` | `--format csv\|json` (csv), `--role known\|unknown\|all` (all), `--min-confidence low\|medium\|high` (low), `--include-hidden` (off) |
 
-Durations accept Go units plus `d` for days (`36h`, `7d`).
+Durations accept Go units plus `d` for days (`36h`, `7d`); `--duration 0` runs until stopped.
 
 Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` preflight failed, `4` state
 directory locked by another collector.

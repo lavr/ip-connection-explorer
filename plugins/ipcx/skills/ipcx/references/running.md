@@ -73,6 +73,26 @@ Use the user's configuration management (Ansible, Salt) to copy the binary, star
 fetch `/var/lib/ipcx/*.json.gz` afterwards. Do not run it across a fleet without the user's
 explicit list of hosts and window.
 
+## Prometheus exporter (beta)
+
+```sh
+sudo systemd-run --unit ipcx-exporter --property=Nice=10 --property=MemoryMax=512M \
+  /usr/local/bin/ipcx collect --state-dir /var/lib/ipcx-exporter \
+  --prometheus-exporter.listen 10.0.0.5:9917
+curl -s http://10.0.0.5:9917/metrics | grep -E '^ipcx_(exporter_ready|exporter_series|gaps_total)'
+```
+
+- Without `--duration`: runs until stopped, no checkpoint, `--raw` refused. With `--duration`
+  the checkpoint is written as usual and the exporter runs beside it.
+- Use a separate state directory if a checkpoint run may happen on the same host: one state
+  directory admits one collector (exit code `4`).
+- A port already in use fails at start with exit code `3`.
+- `ipcx_connections_finished_total` grows when a connection ends; long-lived pools show only in
+  `ipcx_connections_active`. Query both to answer "who talks to whom".
+- `ipcx_exporter_ready 0` means the first conntrack dump has not been applied yet.
+- `ipcx_exporter_series_rejected_total` growing means the table is full: raise
+  `--prometheus-exporter.max-series` or lower `--prometheus-exporter.ttl`.
+
 ## Logs
 
 `collect` logs JSON lines to stderr (the journal under systemd). Messages worth a look:
