@@ -29,6 +29,30 @@ with a confidence level. Flows are aggregated into dependencies such as
 `192.0.2.10 -> 198.51.100.5:443/tcp`, and the aggregate is written to a checkpoint file every
 few minutes. Design details: [docs/design.md](docs/design.md).
 
+## How it differs from other tools
+
+`ipcx` answers one question: which rules does this host need once a firewall stands between it
+and its peers. It sees both directions, including inbound clients that run no agent, decides
+which side is the server, and produces a reviewable table. It needs no eBPF, works on kernel 5.4,
+and runs for a bounded window instead of permanently.
+
+| Tool | Output | Inbound clients | Knows the server side | Needs |
+|---|---|---|---|---|
+| `ipcx` | report for a window | yes | yes | conntrack |
+| [coroot-node-agent](https://github.com/coroot/coroot-node-agent) | Prometheus | no | outbound only | eBPF, 4.16+ |
+| [Beyla](https://grafana.com/docs/beyla/latest/network/) | Prometheus | yes | no | eBPF, 5.8+ |
+| [conntrack_exporter](https://github.com/hiveco/conntrack_exporter) | Prometheus | yes | no | conntrack |
+| [Caretta](https://github.com/groundcover-com/caretta), [Hubble](https://github.com/cilium/hubble), [Retina](https://github.com/microsoft/retina), [NetObserv](https://github.com/netobserv/netobserv-ebpf-agent) | service map | yes | partly | Kubernetes |
+| Telegraf [`conntrack`](https://docs.influxdata.com/telegraf/v1/input-plugins/conntrack/), [`netstat`](https://docs.influxdata.com/telegraf/v1/input-plugins/netstat/) | totals | no | no | nothing |
+
+coroot-node-agent counts outbound connects per destination; inbound clients appear only if they
+run the agent too. Beyla counts bytes per flow in packet direction, so a reply carries the
+client's ephemeral port. conntrack_exporter shows connections open at scrape time and has no
+local address.
+
+For permanent monitoring of who talks to whom, use one of the agents above. For the list of
+rules to request before a move, use `ipcx`.
+
 ## Install
 
 Download the archive for your architecture from the
