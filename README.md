@@ -34,11 +34,12 @@ few minutes. Design details: [docs/design.md](docs/design.md).
 `ipcx` answers one question: which rules does this host need once a firewall stands between it
 and its peers. It sees both directions, including inbound clients that run no agent, decides
 which side is the server, and produces a reviewable table. It needs no eBPF, works on kernel 5.4,
-and runs for a bounded window instead of permanently.
+and runs for a bounded window; a beta [Prometheus exporter](#prometheus-exporter-beta) keeps the
+same matrix permanently.
 
 | Tool | Output | Inbound clients | Knows the server side | Needs |
 |---|---|---|---|---|
-| `ipcx` | report for a window | yes | yes | conntrack |
+| `ipcx` | report for a window, Prometheus (beta) | yes | yes | conntrack |
 | [coroot-node-agent](https://github.com/coroot/coroot-node-agent) | Prometheus | no | outbound only | eBPF, 4.16+ |
 | [Beyla](https://grafana.com/docs/beyla/latest/network/) | Prometheus | yes | no | eBPF, 5.8+ |
 | [conntrack_exporter](https://github.com/hiveco/conntrack_exporter) | Prometheus | yes | no | conntrack |
@@ -50,8 +51,8 @@ run the agent too. Beyla counts bytes per flow in packet direction, so a reply c
 client's ephemeral port. conntrack_exporter shows connections open at scrape time and has no
 local address.
 
-For permanent monitoring of who talks to whom, use one of the agents above. For the list of
-rules to request before a move, use `ipcx`.
+For the list of rules to request before a move, use `ipcx`. For permanent monitoring, try its
+beta exporter, or one of the agents above if you need bytes, latency or process names.
 
 ## Install
 
@@ -127,7 +128,7 @@ the report.
 
 | Command | Flags |
 |---|---|
-| `ipcx collect` | `--duration 7d`, `--state-dir /var/lib/ipcx`, `--checkpoint 2m`, `--dump-every 5m`, `--snapshot-every 60s`, `--raw`, `--go-memory-limit SIZE`, `--max-active 200000`, `--max-known 100000`, `--max-unknown 50000`, `--allow-no-events`, `--check` |
+| `ipcx collect` | `--duration 7d` (`0` runs until stopped), `--state-dir /var/lib/ipcx`, `--checkpoint 2m`, `--dump-every 5m`, `--snapshot-every 60s`, `--raw`, `--go-memory-limit SIZE`, `--max-active 200000`, `--max-known 100000`, `--max-unknown 50000`, `--allow-no-events`, `--check`, `--prometheus-exporter.listen ADDR`, `--prometheus-exporter.path /metrics`, `--prometheus-exporter.ttl 24h`, `--prometheus-exporter.max-series 10000` |
 | `ipcx merge FILE... -o OUT` | |
 | `ipcx report FILE` | `--format csv\|json`, `--role known\|unknown\|all`, `--min-confidence low\|medium\|high`, `--include-hidden` |
 
@@ -146,6 +147,61 @@ rotated; journals of earlier runs are not removed.
 
 `report` defaults: `--format csv`, `--role all`, `--min-confidence low`, hidden rows off. The JSON
 format applies the same filters.
+
+## Prometheus exporter (beta)
+
+`--prometheus-exporter.listen ADDR` serves the connection matrix over HTTP for Prometheus or
+VictoriaMetrics. The flags, metric names and labels may still change.
+
+```sh
+ipcx collect --prometheus-exporter.listen 10.0.0.5:9917
+```
+
+Without an explicit `--duration` the collector runs until stopped and writes no checkpoint: the
+state directory holds only the lock file, and `--raw` is refused. With `--duration` (for
+example `7d`, or `0` for no end) checkpoints are written as usual and the exporter runs beside
+them. The listener has no TLS and no authentication: bind it to an internal address or close
+the port with a firewall. The scrape connection itself appears in the matrix.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `ipcx_connections_finished_total` | counter | connection lifetimes that ended, by their final role |
+| `ipcx_connections_active` | gauge | connections open at the last sample, taken every `--snapshot-every` |
+| `ipcx_exporter_ready` | gauge | `1` once the first conntrack dump is applied |
+| `ipcx_exporter_series`, `ipcx_exporter_series_rejected_total` | gauge, counter | label sets in the table; admissions refused because it was full |
+| `ipcx_flows_active`, `ipcx_flows_rejected_total` | gauge, counter | conntrack entries tracked; observations dropped at `--max-active` |
+| `ipcx_gaps_total`, `ipcx_gap_open{kind}` | counter, gauge | periods when connections could be missed |
+| `ipcx_last_checkpoint_timestamp_seconds`, `ipcx_build_info` | gauge | |
+
+Connection labels:
+
+- `role`: `known`, `unknown` or `conflict`. For `known`, `src_ip` is the client and
+  `dst_ip:dst_port` the service. Otherwise they follow the first packet conntrack saw, which
+  is not proof of who the client is.
+- `direction`: relative to this host, as in the report. `forwarded` means neither end of the
+  original direction is a local address.
+- `proto`, `src_ip`, `dst_ip`, `dst_port`. There is no source port and no process. A local
+  ephemeral port is shown as `0`, and so is the port of ICMP.
+
+A connection is counted in `finished_total` when it ends, so a pool that stays open for weeks
+shows only in `active`, and a single short connection may never be seen in `active`. The matrix
+is the set of series the exporter currently holds, whatever their values:
+
+```promql
+count by (instance, src_ip, dst_ip, dst_port, proto) (ipcx_connections_finished_total)
+```
+
+A pair stays in it until it has been idle for the TTL, so this is "seen within about the TTL",
+not an exact window. Check `ipcx_exporter_ready`, `ipcx_exporter_series_rejected_total` and
+`ipcx_gaps_total` before trusting that a pair is absent.
+Labels show the original conntrack view: behind NAT that is not necessarily the final backend.
+Counts from several hosts describe what each host observed; do not add them up as unique
+connections.
+
+A label set that has seen no connection for `--prometheus-exporter.ttl` leaves the output; if
+it comes back, its counter starts again from zero. The table holds at most
+`--prometheus-exporter.max-series` label sets (two series each); further new ones are refused
+and counted, existing ones keep updating. Removed series stay in the TSDB until its retention.
 
 ## Report columns
 

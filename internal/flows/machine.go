@@ -144,6 +144,7 @@ type activeFlow struct {
 	dir        model.Direction
 	key        model.DepKey
 	attached   bool
+	labels     Labels
 }
 
 // Machine is the single owner of collection state. It is not safe for concurrent use.
@@ -175,6 +176,11 @@ type Machine struct {
 
 	estimated bool
 	cov       model.Coverage
+
+	onFinish       func(Labels, time.Time)
+	noReport       bool
+	gapsOpened     uint64
+	activeRejected uint64
 
 	// Work counters for tests and benchmarks.
 	attrProbes        int
@@ -241,7 +247,7 @@ func (m *Machine) ApplyEvent(ev CTEvent) {
 	f := m.active[id]
 	if ev.Kind == EventNew {
 		if f != nil && !sameLifetime(f.ct.ID, ev.Flow.ID) {
-			m.finish(f)
+			m.finish(f, ev.At)
 			f = nil
 		}
 		if f == nil {
@@ -274,7 +280,7 @@ func (m *Machine) ApplyEvent(ev CTEvent) {
 	m.attribute(f)
 	if ev.Kind == EventDestroy {
 		f.destroyEv++
-		m.finish(f)
+		m.finish(f, ev.At)
 		m.addTomb(id, tomb{at: ev.At, ctID: ev.Flow.ID})
 	}
 	if m.sinceSweep++; m.sinceSweep >= sweepEvery {
@@ -286,10 +292,11 @@ func (m *Machine) ApplyEvent(ev CTEvent) {
 // kernel entry when the conntrack IDs match. A zero ID carries no information.
 func sameLifetime(a, b uint32) bool { return a != 0 && a == b }
 
-func (m *Machine) ApplyDump(res DumpResult) {
+// ApplyDump reports whether the dump was applied; a stale one is counted and ignored.
+func (m *Machine) ApplyDump(res DumpResult) bool {
 	if res.Epoch < m.epoch || (res.Attempt != 0 && res.Attempt <= m.lastAttempt) {
 		m.Count("stale_dumps", 1)
-		return
+		return false
 	}
 	if res.Attempt != 0 {
 		m.lastAttempt = res.Attempt
@@ -322,12 +329,13 @@ func (m *Machine) ApplyDump(res DumpResult) {
 	if res.Complete {
 		for id, f := range m.active {
 			if !seen[id] && f.touched.Before(res.Started) {
-				m.finish(f)
+				m.finish(f, res.Finished)
 				m.addTomb(id, tomb{at: res.Started, ctID: f.ct.ID})
 			}
 		}
 	}
 	m.sweepTombs(res.Finished)
+	return true
 }
 
 func (m *Machine) ApplySockets(s SockSnapshot) {
@@ -345,6 +353,7 @@ func (m *Machine) ApplyProcIndex(p ProcIndex) {
 }
 
 func (m *Machine) OpenGap(kind model.GapKind, reason string, at time.Time) {
+	m.gapsOpened++
 	m.cov.Gaps = append(m.cov.Gaps, model.Gap{Kind: kind, From: at, Reason: reason})
 	if kind == model.GapMap {
 		m.cov.HistoryIncomplete = true
@@ -357,6 +366,9 @@ func (m *Machine) CloseGap(kind model.GapKind, at time.Time) {
 		g := &m.cov.Gaps[i]
 		if g.Kind == kind && g.To.IsZero() {
 			g.To = at
+			if m.noReport {
+				m.cov.Gaps = slices.Delete(m.cov.Gaps, i, i+1)
+			}
 			return
 		}
 	}
@@ -386,6 +398,7 @@ func (m *Machine) EndInterval(at time.Time) {
 
 func (m *Machine) create(c CTFlow, at time.Time) *activeFlow {
 	if !under(len(m.active), m.lim.MaxActive) {
+		m.activeRejected++
 		m.markTruncated(false, at)
 		return nil
 	}
@@ -416,8 +429,11 @@ func (m *Machine) observe(f *activeFlow, c CTFlow, src model.Source, at time.Tim
 	}
 }
 
-func (m *Machine) finish(f *activeFlow) {
+func (m *Machine) finish(f *activeFlow, at time.Time) {
 	delete(m.active, f.id)
+	if m.onFinish != nil {
+		m.onFinish(f.labels, at)
+	}
 	if !f.attached {
 		return
 	}
@@ -444,6 +460,10 @@ func (m *Machine) reclassify(f *activeFlow, now time.Time) {
 	prevInf, prevDir := f.inf, f.dir
 	f.inf = Classify(f.ct, f.ev, m.listen, m, m.host, now)
 	f.dir = m.direction(f)
+	f.labels = m.labelsFor(f)
+	if m.noReport {
+		return
+	}
 	key := m.keyFor(f)
 	if f.attached && f.key == key {
 		return

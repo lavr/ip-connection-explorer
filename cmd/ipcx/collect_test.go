@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -11,7 +13,11 @@ import (
 
 func TestCollectFlagErrors(t *testing.T) {
 	for _, args := range [][]string{
-		{"ipcx", "collect", "--duration", "0"},
+		{"ipcx", "collect", "--duration", "-1h"},
+		{"ipcx", "collect", "--prometheus-exporter.ttl", "0"},
+		{"ipcx", "collect", "--prometheus-exporter.max-series", "0"},
+		{"ipcx", "collect", "--prometheus-exporter.path", "metrics"},
+		{"ipcx", "collect", "--prometheus-exporter.listen", "127.0.0.1:0", "--raw"},
 		{"ipcx", "collect", "--go-memory-limit", "12XB"},
 		{"ipcx", "collect", "--checkpoint", "bogus"},
 		{"ipcx", "collect", "extra-arg"},
@@ -77,5 +83,70 @@ func TestProfileFileIsPrivate(t *testing.T) {
 	st, err := os.Stat(p)
 	if err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("%v %v", st.Mode(), err)
+	}
+}
+
+func TestCollectExporterBindFailure(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	var errOut bytes.Buffer
+	code := run([]string{"ipcx", "collect", "--state-dir", t.TempDir(), "--prometheus-exporter.listen", ln.Addr().String()}, io.Discard, &errOut)
+	if code != 3 || !strings.Contains(errOut.String(), "--prometheus-exporter.listen") {
+		t.Fatalf("code=%d err=%s", code, errOut.String())
+	}
+}
+
+func TestCollectCheckDoesNotServe(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	var errOut bytes.Buffer
+	run([]string{"ipcx", "collect", "--check", "--state-dir", t.TempDir(), "--prometheus-exporter.listen", ln.Addr().String()}, io.Discard, &errOut)
+	if strings.Contains(errOut.String(), "prometheus-exporter") {
+		t.Fatalf("--check touched the exporter: %s", errOut.String())
+	}
+}
+
+func TestExporterServerServesPathOnly(t *testing.T) {
+	ms, err := startMetricsServer("127.0.0.1:0", "/metrics", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, "ok\n")
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ms.close()
+	base := "http://" + ms.addr.String()
+	for path, want := range map[string]int{"/metrics": 200, "/": 404, "/debug/pprof/": 404} {
+		resp, err := http.Get(base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("%s: %d", path, resp.StatusCode)
+		}
+	}
+}
+
+func TestExporterPathIsLiteral(t *testing.T) {
+	ms, err := startMetricsServer("127.0.0.1:0", "/metrics/{bad", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, "ok\n")
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ms.close()
+	resp, err := http.Get("http://" + ms.addr.String() + "/metrics/%7Bbad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("%d", resp.StatusCode)
 	}
 }
