@@ -201,7 +201,27 @@ correct. Review the table before you send it anywhere.
 
 Older kernels, including 5.4, are expected to work but are not listed until tested.
 
+## Agent skill
+
+A skill for Claude Code and Codex is published from this repository as a plugin. It teaches the
+agent to run the preflight and a collection, read the report and prepare a firewall request,
+and to ask before touching a host:
+
+```sh
+# Claude Code
+claude plugin marketplace add lavr/ip-connection-explorer
+claude plugin install ipcx@ipcx
+
+# Codex
+codex plugin marketplace add lavr/ip-connection-explorer
+codex plugin add ipcx@ipcx
+```
+
+Install it by one route per agent, not both.
+
 ## Development
+
+Contributor and agent guidance: [AGENTS.md](AGENTS.md).
 
 ```sh
 make test               # unit tests

@@ -1,0 +1,19 @@
+{
+  "name": "ipcx",
+  "interface": {
+    "displayName": "ipcx"
+  },
+  "plugins": [
+    {
+      "name": "ipcx",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ipcx"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
