@@ -1,0 +1,26 @@
+{
+  "name": "ipcx",
+  "version": "0.1.1",
+  "description": "Map a Linux host's real network dependencies with ipcx and turn the report into a firewall request.",
+  "author": {
+    "name": "Sergey Lavrinenko"
+  },
+  "homepage": "https://github.com/lavr/ip-connection-explorer",
+  "repository": "https://github.com/lavr/ip-connection-explorer",
+  "license": "MIT",
+  "keywords": [
+    "ipcx",
+    "network",
+    "firewall",
+    "conntrack",
+    "migration"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ipcx",
+    "shortDescription": "Find which firewall rules a host needs before it moves",
+    "developerName": "Sergey Lavrinenko",
+    "category": "Developer Tools",
+    "websiteURL": "https://github.com/lavr/ip-connection-explorer"
+  }
+}

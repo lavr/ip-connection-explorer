@@ -1,0 +1,32 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ipcx",
+  "owner": {
+    "name": "Sergey Lavrinenko"
+  },
+  "metadata": {
+    "description": "The ipcx agent skill: map a host's network dependencies and prepare a firewall request."
+  },
+  "plugins": [
+    {
+      "name": "ipcx",
+      "source": "./plugins/ipcx",
+      "description": "Map a Linux host's real network dependencies with ipcx and turn the report into a firewall request.",
+      "version": "0.1.1",
+      "author": {
+        "name": "Sergey Lavrinenko"
+      },
+      "homepage": "https://github.com/lavr/ip-connection-explorer",
+      "repository": "https://github.com/lavr/ip-connection-explorer",
+      "license": "MIT",
+      "category": "devops",
+      "keywords": [
+        "ipcx",
+        "network",
+        "firewall",
+        "conntrack",
+        "migration"
+      ]
+    }
+  ]
+}
