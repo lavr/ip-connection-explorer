@@ -166,6 +166,10 @@ Rules:
   original or the reply tuple.
 - `forwarded` only if no endpoint is local in either tuple. Anything that cannot be decided
   (NAT, VIP, non-local bind) is `unresolved` and keeps full example tuples.
+- Host addresses are the addresses of interfaces that are up, rechecked with every socket
+  snapshot. Addresses on interfaces that are down are not host addresses: kube-proxy in IPVS
+  mode puts every ClusterIP (and service VIPs) on the `kube-ipvs0` dummy and keeps it down, so
+  pod traffic to a ClusterIP is `forwarded`, not `inbound`.
 - Loopback and link-local addresses get `scope = observer:<machine_id>`, so that
   `127.0.0.1 -> 127.0.0.1:5432` on two hosts stays two dependencies. All other addresses get
   `scope = global`.

@@ -49,3 +49,22 @@ func TestAddressesNormalized(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalAddrsSkipDownInterfaces(t *testing.T) {
+	ifs := []ifaceAddrs{
+		{up: true, addrs: []string{"127.0.0.1/8", "::1/128"}},
+		{up: true, addrs: []string{"192.0.2.10/24", "fe80::1/64"}},
+		{up: false, addrs: []string{"198.51.100.7/32", "198.51.100.8/32"}},
+		{up: true, addrs: []string{"203.0.113.1/24"}},
+	}
+	got := localAddrs(ifs)
+	want := []string{"127.0.0.1", "::1", "192.0.2.10", "fe80::1", "203.0.113.1"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i].String() != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
