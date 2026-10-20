@@ -36,22 +36,14 @@ and its peers. It sees both directions, including inbound clients that run no ag
 which side is the server, and produces a reviewable table. It needs no eBPF, works on kernel 5.4,
 and runs for a bounded window instead of permanently.
 
-- [coroot-node-agent](https://github.com/coroot/coroot-node-agent): permanent Prometheus metrics
-  of outbound TCP connects per destination (eBPF, kernel 4.16+). Inbound clients are not listed
-  individually, so the full picture needs the agent on every peer.
-- [Grafana Beyla](https://grafana.com/docs/beyla/latest/network/) network metrics: bytes per
-  flow with address and port attributes (eBPF, kernel 5.8+ with BTF). Flows follow packet
-  direction, so they do not say which side is the client and which port is the service.
-- [conntrack_exporter](https://github.com/hiveco/conntrack_exporter): gauges of currently open
-  connections per remote `ip:port` from conntrack. No local address or direction; short
-  connections between scrapes are missed.
-- [Caretta](https://github.com/groundcover-com/caretta), [Hubble](https://github.com/cilium/hubble),
-  [Retina](https://github.com/microsoft/retina),
-  [NetObserv](https://github.com/netobserv/netobserv-ebpf-agent): service maps and flow
-  visibility for Kubernetes clusters, not for ordinary hosts.
-- Telegraf [`conntrack`](https://docs.influxdata.com/telegraf/v1/input-plugins/conntrack/) and
-  [`netstat`](https://docs.influxdata.com/telegraf/v1/input-plugins/netstat/) inputs: totals
-  only, no breakdown by peer.
+| Tool | What it gives | Inbound clients | Client and service roles | Needs | Scope |
+|---|---|---|---|---|---|
+| `ipcx` | dependency table (CSV, JSON) for a time window | yes, without an agent on the client | yes, with confidence | conntrack, kernel 5.4+ | any Linux host |
+| [coroot-node-agent](https://github.com/coroot/coroot-node-agent) | Prometheus counters of outbound TCP connects per destination | listening ports only | outbound side only | eBPF, kernel 4.16+ | hosts and containers, permanent |
+| [Grafana Beyla](https://grafana.com/docs/beyla/latest/network/) network metrics | Prometheus bytes per flow with addresses and ports | yes | no: flows follow packet direction | eBPF, kernel 5.8+ with BTF | hosts and Kubernetes, permanent |
+| [conntrack_exporter](https://github.com/hiveco/conntrack_exporter) | Prometheus gauges of open connections per remote `ip:port` | yes | no local address or direction | conntrack | any Linux host, permanent; short connections between scrapes are missed |
+| [Caretta](https://github.com/groundcover-com/caretta), [Hubble](https://github.com/cilium/hubble), [Retina](https://github.com/microsoft/retina), [NetObserv](https://github.com/netobserv/netobserv-ebpf-agent) | service maps and flows | yes | partly | eBPF, a CNI or operator | Kubernetes clusters |
+| Telegraf [`conntrack`](https://docs.influxdata.com/telegraf/v1/input-plugins/conntrack/), [`netstat`](https://docs.influxdata.com/telegraf/v1/input-plugins/netstat/) | totals: table size, sockets per state | no | no | none | any Linux host |
 
 For permanent monitoring of who talks to whom, use one of the agents above. For the list of
 rules to request before a move, use `ipcx`.
