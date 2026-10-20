@@ -191,6 +191,11 @@ correct. Review the table before you send it anywhere.
 - **`forwarded` does not mean IP forwarding.** Any flow with no local endpoint lands there,
   including broadcasts received from neighbours on the same L2 segment (DHCP, discovery
   protocols). These rows are hidden by default.
+- **Kubernetes nodes.** Pod-to-pod and pod-to-ClusterIP traffic routed by the node is
+  `forwarded`. Host addresses are taken only from interfaces that are up, so the ClusterIPs that
+  kube-proxy in IPVS mode keeps on the down `kube-ipvs0` dummy do not count as the node's own.
+  Traffic between the node and its own pods (kubelet probes from the bridge address) is still
+  shown as `outbound`.
 - Absence of traffic during the run is not proof that a dependency does not exist.
 
 ## Tested on

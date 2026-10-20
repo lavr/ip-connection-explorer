@@ -53,18 +53,47 @@ func Collect(procRoot, etcRoot string) (Info, error) {
 	return info, nil
 }
 
+type ifaceAddrs struct {
+	up    bool
+	addrs []string
+}
+
+// Addresses returns the addresses of interfaces that are up. kube-proxy in IPVS mode puts every
+// ClusterIP on the kube-ipvs0 dummy, which it keeps down: traffic to those addresses is pod
+// traffic balanced by IPVS, not traffic to this host.
 func Addresses() ([]netip.Addr, error) {
-	addrs, err := net.InterfaceAddrs()
+	ifs, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
+	var all []ifaceAddrs
+	for _, ifc := range ifs {
+		addrs, err := ifc.Addrs()
+		if err != nil {
+			return nil, err
+		}
+		ia := ifaceAddrs{up: ifc.Flags&net.FlagUp != 0}
+		for _, a := range addrs {
+			ia.addrs = append(ia.addrs, a.String())
+		}
+		all = append(all, ia)
+	}
+	return localAddrs(all), nil
+}
+
+func localAddrs(ifs []ifaceAddrs) []netip.Addr {
 	var out []netip.Addr
-	for _, a := range addrs {
-		if p, err := netip.ParsePrefix(a.String()); err == nil {
-			out = append(out, model.NormalizeAddr(p.Addr()))
+	for _, ifc := range ifs {
+		if !ifc.up {
+			continue
+		}
+		for _, a := range ifc.addrs {
+			if p, err := netip.ParsePrefix(a); err == nil {
+				out = append(out, model.NormalizeAddr(p.Addr()))
+			}
 		}
 	}
-	return out, nil
+	return out
 }
 
 func readTrim(path string) (string, error) {

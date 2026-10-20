@@ -51,7 +51,8 @@ One row per dependency and observer run.
 
 - Only flows conntrack tracks are seen; hosts without stateful rules may track nothing.
 - Only the host's own network namespace; containers in their own namespaces are not observed
-  directly (on a Kubernetes node their routed traffic shows up as `forwarded`).
+  directly (on a Kubernetes node their routed traffic, including pod-to-ClusterIP, shows up as
+  `forwarded`; kubelet probes from the node's bridge address to its pods stay `outbound`).
 - A gap in the event stream is permanent: a connection that opened and closed inside it is lost.
 - UDP roles are often unknown.
 - Absence of traffic in the window is not proof that a dependency does not exist.
