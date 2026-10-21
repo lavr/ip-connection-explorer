@@ -16,6 +16,8 @@ func Convert(f ct.Flow) flows.CTFlow {
 		Reply:     tuple(f.TupleReply, f.Zone),
 		Assured:   f.Status.Assured(),
 		SeenReply: f.Status.SeenReply(),
+		SrcNAT:    f.Status.SrcNAT(),
+		DstNAT:    f.Status.DstNAT(),
 	}
 	if f.ProtoInfo.TCP != nil {
 		c.TCPState, c.HasTCPState = model.CTState(f.ProtoInfo.TCP.State), true

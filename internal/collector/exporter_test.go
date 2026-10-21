@@ -142,3 +142,28 @@ func TestStaleDumpDoesNotSetReady(t *testing.T) {
 		t.Fatal("an accepted complete dump did not make the exporter ready")
 	}
 }
+
+func TestNATView(t *testing.T) {
+	for _, original := range []bool{false, true} {
+		defer goleak.VerifyNone(t)
+		f := ctflow("10.233.70.5:40000", "198.51.100.5:443")
+		f.Reply.Dst, f.SrcNAT = ep("192.0.2.10:40000"), true
+		env := &fakeEnv{eventsValue: 1, dumpFlows: []flows.CTFlow{f}}
+		exp := &fakeExporter{}
+		cfg := testConfig(t.TempDir())
+		cfg.Exporter = exp
+		cfg.OriginalNAT = original
+		ctx, cancel := context.WithCancel(context.Background())
+		done := runAsync(ctx, cfg, env.sources())
+		want := flows.Labels{Role: model.RoleKnown, Direction: model.DirOutbound, Proto: model.ProtoTCP,
+			Src: ep("192.0.2.10:0").Addr, Dst: ep("198.51.100.5:0").Addr, DstPort: 443}
+		if original {
+			want.Direction, want.Src = model.DirUnresolved, ep("10.233.70.5:0").Addr
+		}
+		waitFor(t, func() bool { _, act, ready, _ := exp.state(); return ready && act[want] == 1 })
+		cancel()
+		if code := waitCode(t, done); code != ExitOK {
+			t.Fatalf("code=%d", code)
+		}
+	}
+}

@@ -35,7 +35,7 @@ what is allowed.
 
 ```
 ipcx collect [--duration 7d] [--state-dir /var/lib/ipcx] [--checkpoint 2m]
-             [--raw] [--go-memory-limit SIZE] [--max-active N] [--max-known N] [--max-unknown N]
+             [--raw] [--nat-view host|original] [--go-memory-limit SIZE] [--max-active N] [--max-known N] [--max-unknown N]
 ipcx collect --check
 ipcx merge FILE... -o merged.json.gz
 ipcx report FILE [--format csv|json] [--role known|unknown|all]
@@ -166,6 +166,15 @@ Rules:
   original or the reply tuple.
 - `forwarded` only if no endpoint is local in either tuple. Anything that cannot be decided
   (NAT, VIP, non-local bind) is `unresolved` and keeps full example tuples.
+- Source NAT to a host address is the exception. When conntrack sets `IPS_SRC_NAT` and not
+  `IPS_DST_NAT`, neither original endpoint is local, the reply goes to a host address and the
+  reply source equals the original destination (address and port), the flow is recorded under
+  the translated tuple: the inverse of the reply, that is the host address as source and the
+  original destination. Classification, direction, the dependency key and exporter labels all
+  use it; the flow identity, tombstones, process attribution and example tuples keep the raw
+  conntrack tuples. The flow gets `conntrack_snat` evidence. `--nat-view original` turns this
+  off. Combined SNAT and DNAT is not projected: the pair of translated endpoints needs its own
+  contract.
 - Host addresses are the addresses of interfaces that are up, rechecked with every socket
   snapshot. Addresses on interfaces that are down are not host addresses: kube-proxy in IPVS
   mode puts every ClusterIP (and service VIPs) on the `kube-ipvs0` dummy and keeps it down, so

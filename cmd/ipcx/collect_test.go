@@ -20,6 +20,7 @@ func TestCollectFlagErrors(t *testing.T) {
 		{"ipcx", "collect", "--prometheus-exporter.listen", "127.0.0.1:0", "--raw"},
 		{"ipcx", "collect", "--go-memory-limit", "12XB"},
 		{"ipcx", "collect", "--checkpoint", "bogus"},
+		{"ipcx", "collect", "--nat-view", "pod"},
 		{"ipcx", "collect", "extra-arg"},
 	} {
 		if code := run(args, io.Discard, io.Discard); code != 2 {

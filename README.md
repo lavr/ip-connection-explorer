@@ -128,7 +128,7 @@ the report.
 
 | Command | Flags |
 |---|---|
-| `ipcx collect` | `--duration 7d` (`0` runs until stopped), `--state-dir /var/lib/ipcx`, `--checkpoint 2m`, `--dump-every 5m`, `--snapshot-every 60s`, `--raw`, `--go-memory-limit SIZE`, `--max-active 200000`, `--max-known 100000`, `--max-unknown 50000`, `--allow-no-events`, `--check`, `--prometheus-exporter.listen ADDR`, `--prometheus-exporter.path /metrics`, `--prometheus-exporter.ttl 24h`, `--prometheus-exporter.max-series 10000` |
+| `ipcx collect` | `--duration 7d` (`0` runs until stopped), `--state-dir /var/lib/ipcx`, `--checkpoint 2m`, `--dump-every 5m`, `--snapshot-every 60s`, `--raw`, `--nat-view host`, `--go-memory-limit SIZE`, `--max-active 200000`, `--max-known 100000`, `--max-unknown 50000`, `--allow-no-events`, `--check`, `--prometheus-exporter.listen ADDR`, `--prometheus-exporter.path /metrics`, `--prometheus-exporter.ttl 24h`, `--prometheus-exporter.max-series 10000` |
 | `ipcx merge FILE... -o OUT` | |
 | `ipcx report FILE` | `--format csv\|json`, `--role known\|unknown\|all`, `--min-confidence low\|medium\|high`, `--include-hidden` |
 
@@ -194,7 +194,9 @@ count by (instance, src_ip, dst_ip, dst_port, proto) (ipcx_connections_finished_
 A pair stays in it until it has been idle for the TTL, so this is "seen within about the TTL",
 not an exact window. Check `ipcx_exporter_ready`, `ipcx_exporter_series_rejected_total` and
 `ipcx_gaps_total` before trusting that a pair is absent.
-Labels show the original conntrack view: behind NAT that is not necessarily the final backend.
+Labels use the same view as the report: a connection masqueraded behind a host address is
+shown from that address (see NAT below), and behind DNAT the destination is the original one,
+not necessarily the final backend.
 Counts from several hosts describe what each host observed; do not add them up as unique
 connections.
 
@@ -225,7 +227,8 @@ dependency usually appears twice: outbound on the client, inbound on the server.
 | `ever_reply_seen` | a reply was seen at least once |
 | `coverage_status` | `complete`; `incomplete` (a gap, events disabled, or the run had not finished); `truncated` (a limit was hit); `incomplete+truncated` |
 
-Loopback and link-local, forwarded and unresolved (NAT) rows are hidden unless
+Loopback and link-local, forwarded and unresolved (NAT other than plain source NAT) rows are
+hidden unless
 `--include-hidden` is given.
 `report` prints a summary to stderr with what was hidden and which runs are incomplete.
 
@@ -239,6 +242,7 @@ Loopback and link-local, forwarded and unresolved (NAT) rows are hidden unless
 | `listen_contradicts` | the supposed client side listens on that port: role is `conflict` |
 | `port_range` | UDP from a local ephemeral port: a weak hint |
 | `udp_bound` | UDP from outside to a bound, non-ephemeral local port: a weak hint that it is a server |
+| `conntrack_snat` | the connection left through source NAT to a host address and is recorded from that address; the original source is in the example tuples |
 | `none` | nothing decides the role: `unknown` |
 
 `high` is confidence in the inferred role, not a promise that a firewall rule derived from it is
@@ -275,7 +279,15 @@ correct. Review the table before you send it anywhere.
   `forwarded`. Host addresses are taken only from interfaces that are up, so the ClusterIPs that
   kube-proxy in IPVS mode keeps on the down `kube-ipvs0` dummy do not count as the node's own.
   Traffic between the node and its own pods (kubelet probes from the bridge address) is still
-  shown as `outbound`.
+  shown as `outbound`, and so is pod traffic masqueraded to the outside (see NAT above).
+- **NAT.** A connection from a non-local source that this host masquerades behind one of its
+  own addresses (Kubernetes pods or Docker containers reaching outside, for example) is
+  recorded from that host address: `outbound`, with `conntrack_snat` evidence. That is the
+  source a firewall beyond the host sees, and it keeps short-lived pod addresses out of the
+  table. It applies only when conntrack marks the entry as source-NATed, the destination is
+  unchanged and neither original endpoint is local; anything with DNAT (ClusterIP, NodePort)
+  keeps the original view and is `unresolved`. `--nat-view original` records every connection
+  from its original source, as before 0.3.
 - Absence of traffic during the run is not proof that a dependency does not exist.
 
 ## Tested on

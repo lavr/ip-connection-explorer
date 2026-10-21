@@ -14,6 +14,8 @@ type CTFlow struct {
 	HasTCPState bool
 	Assured     bool
 	SeenReply   bool
+	SrcNAT      bool
+	DstNAT      bool
 }
 
 type Socket struct {

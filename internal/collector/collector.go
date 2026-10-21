@@ -75,6 +75,9 @@ type Config struct {
 	// NoCheckpoint writes no checkpoint and keeps no report state; only the lock file is
 	// created in StateDir.
 	NoCheckpoint bool
+	// OriginalNAT records masqueraded connections from their original source, not from the
+	// host address they leave from.
+	OriginalNAT bool
 }
 
 func (c *Config) defaults() {
@@ -202,6 +205,9 @@ func (r *runner) run(ctx context.Context) int {
 	r.m.StartInterval(r.started)
 	if r.cfg.NoCheckpoint {
 		r.m.DisableReport()
+	}
+	if r.cfg.OriginalNAT {
+		r.m.KeepOriginalNAT()
 	}
 	if r.cfg.Exporter != nil {
 		r.m.OnFinish(r.cfg.Exporter.Finished)

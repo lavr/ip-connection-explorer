@@ -88,8 +88,10 @@ handling on the host. Explain the option and its cost (below) and let the owner 
 
 Hidden by default (`--include-hidden` shows them): loopback and link-local, `forwarded` (no
 local endpoint, including broadcasts from neighbours and traffic routed through the host, such
-as Kubernetes pod traffic on a node), and `unresolved` (NAT). They never need a host firewall
-rule but can explain surprises.
+as Kubernetes pod traffic on a node), and `unresolved` (NAT other than plain source NAT). They
+never need a host firewall rule but can explain surprises. Pod or container traffic masqueraded
+behind the host address is not hidden: it is `outbound` from the host address with
+`conntrack_snat` evidence, which is the source a network firewall sees.
 
 ## Hosts without conntrack
 
