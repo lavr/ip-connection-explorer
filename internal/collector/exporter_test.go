@@ -10,6 +10,7 @@ import (
 
 	"go.uber.org/goleak"
 
+	"github.com/lavr/ip-connection-explorer/internal/checkpoint"
 	"github.com/lavr/ip-connection-explorer/internal/flows"
 	"github.com/lavr/ip-connection-explorer/internal/model"
 )
@@ -146,7 +147,7 @@ func TestStaleDumpDoesNotSetReady(t *testing.T) {
 func TestNATView(t *testing.T) {
 	for _, original := range []bool{false, true} {
 		defer goleak.VerifyNone(t)
-		f := ctflow("10.233.70.5:40000", "198.51.100.5:443")
+		f := ctflow("198.18.70.5:40000", "198.51.100.5:443")
 		f.Reply.Dst, f.SrcNAT = ep("192.0.2.10:40000"), true
 		env := &fakeEnv{eventsValue: 1, dumpFlows: []flows.CTFlow{f}}
 		exp := &fakeExporter{}
@@ -158,12 +159,36 @@ func TestNATView(t *testing.T) {
 		want := flows.Labels{Role: model.RoleKnown, Direction: model.DirOutbound, Proto: model.ProtoTCP,
 			Src: ep("192.0.2.10:0").Addr, Dst: ep("198.51.100.5:0").Addr, DstPort: 443}
 		if original {
-			want.Direction, want.Src = model.DirUnresolved, ep("10.233.70.5:0").Addr
+			want.Direction, want.Src = model.DirUnresolved, ep("198.18.70.5:0").Addr
 		}
 		waitFor(t, func() bool { _, act, ready, _ := exp.state(); return ready && act[want] == 1 })
 		cancel()
 		if code := waitCode(t, done); code != ExitOK {
 			t.Fatalf("code=%d", code)
+		}
+	}
+}
+
+func TestCheckpointRecordsNATView(t *testing.T) {
+	for _, original := range []bool{false, true} {
+		defer goleak.VerifyNone(t)
+		dir := t.TempDir()
+		env := &fakeEnv{eventsValue: 1}
+		cfg := testConfig(dir)
+		cfg.OriginalNAT = original
+		ctx, cancel := context.WithCancel(context.Background())
+		done := runAsync(ctx, cfg, env.sources())
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+		if code := waitCode(t, done); code != ExitOK {
+			t.Fatalf("code=%d", code)
+		}
+		want := checkpoint.NATViewHost
+		if original {
+			want = checkpoint.NATViewOriginal
+		}
+		if f := readOnly(t, dir); f.Run.NATView != want || f.SchemaVersion != 2 {
+			t.Fatalf("schema=%d nat_view=%q", f.SchemaVersion, f.Run.NATView)
 		}
 	}
 }

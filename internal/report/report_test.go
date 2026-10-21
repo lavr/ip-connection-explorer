@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lavr/ip-connection-explorer/internal/checkpoint"
+	"github.com/lavr/ip-connection-explorer/internal/merge"
 	"github.com/lavr/ip-connection-explorer/internal/model"
 )
 
@@ -151,5 +152,15 @@ func TestJSONFormat(t *testing.T) {
 	got, _ := render(t, sampleInput(), Options{Format: "json", Role: "all"})
 	if !strings.Contains(got, `"dependencies"`) || strings.Contains(got, "127.0.0.1") {
 		t.Fatalf("%s", got)
+	}
+}
+
+func TestLoadRejectsMergedFromNewerSchema(t *testing.T) {
+	p := t.TempDir() + "/m.json.gz"
+	if err := checkpoint.WriteTo(p, merge.Merged{SchemaVersion: checkpoint.SchemaVersion + 1, Kind: merge.Kind}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p); err == nil {
+		t.Fatal("merged file from a newer schema accepted")
 	}
 }

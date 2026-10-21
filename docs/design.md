@@ -235,12 +235,14 @@ Fields per dependency:
 
 ## Checkpoint format
 
-`<hostname>-<run_id>.json.gz`, `schema_version: 1`.
+`<hostname>-<run_id>.json.gz`, `schema_version: 2`. Version 2 added `run.nat_view` and the
+`conntrack_snat` evidence. `merge` and `report` still read version 1 files and treat them as
+`nat_view: original`; releases before 0.3 cannot read version 2 files.
 
 ```
 tool:      { version, commit }
 host:      { hostname, machine_id, boot_id, kernel, addresses: [{ addr, first_seen, last_seen }] }
-run:       { run_id, started_at, generation, checkpoint_at, last_successful_checkpoint, params }
+run:       { run_id, started_at, generation, checkpoint_at, last_successful_checkpoint, params, nat_view: host|original }
 coverage:  {
   netns: "current",
   events_sysctl: 0|1|2,

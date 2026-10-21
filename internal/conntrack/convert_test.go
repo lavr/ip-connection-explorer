@@ -27,7 +27,7 @@ func TestConvertNormalizesAndFlags(t *testing.T) {
 }
 
 func TestConvertNATFlags(t *testing.T) {
-	f := ct.NewFlow(6, ct.StatusSrcNAT|ct.StatusDstNATDone, netip.MustParseAddr("10.233.70.5"), netip.MustParseAddr("198.51.100.5"), 40000, 443, 60, 0)
+	f := ct.NewFlow(6, ct.StatusSrcNAT|ct.StatusDstNATDone, netip.MustParseAddr("198.18.70.5"), netip.MustParseAddr("198.51.100.5"), 40000, 443, 60, 0)
 	if c := Convert(f); !c.SrcNAT || c.DstNAT {
 		t.Fatalf("%+v", c)
 	}

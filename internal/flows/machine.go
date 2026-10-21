@@ -466,7 +466,13 @@ func (m *Machine) reclassify(f *activeFlow, now time.Time) {
 	f.view, f.snat = m.project(f.ct)
 	c := f.ct
 	c.Orig = f.view
-	f.inf = Classify(c, f.ev, m.listen, m, m.host, now)
+	// The translated source port is not a socket of this host, so its listeners say nothing
+	// about the role; the destination of a projected flow is never local either.
+	li := m.listen
+	if f.snat {
+		li = nil
+	}
+	f.inf = Classify(c, f.ev, li, m, m.host, now)
 	if f.snat {
 		f.inf.Evidence = append(f.inf.Evidence, model.EvidenceSNAT)
 	}

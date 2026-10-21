@@ -102,11 +102,22 @@ type roleView struct {
 	port      uint16
 }
 
+// rawRole puts a role recorded from the host SNAT address back on the original tuple, so runs
+// with different --nat-view compare in one frame.
+func rawRole(k model.DepKey, ex model.Example) roleView {
+	v := roleView{k.Status, k.Initiator, k.Service, k.ServicePort}
+	if v.initiator == ex.Reply.Dst.Addr && v.initiator != ex.Orig.Src.Addr && v.service == ex.Orig.Dst.Addr {
+		v.initiator = ex.Orig.Src.Addr
+	}
+	return v
+}
+
 // conflicts reports observers that saw the same original tuple but inferred different roles.
 func conflicts(deps []model.Dependency) []Conflict {
 	type entry struct {
-		obs model.ObserverRef
-		key model.DepKey
+		obs  model.ObserverRef
+		key  model.DepKey
+		view roleView
 	}
 	by := map[transportKey][]entry{}
 	var order []transportKey
@@ -119,7 +130,7 @@ func conflicts(deps []model.Dependency) []Conflict {
 			if _, ok := by[k]; !ok {
 				order = append(order, k)
 			}
-			by[k] = append(by[k], entry{d.Observer, d.Key})
+			by[k] = append(by[k], entry{d.Observer, d.Key, rawRole(d.Key, ex)})
 		}
 	}
 	var out []Conflict
@@ -131,7 +142,7 @@ func conflicts(deps []model.Dependency) []Conflict {
 			if e.key.Status == model.RoleUnknown {
 				continue
 			}
-			views[roleView{e.key.Status, e.key.Initiator, e.key.Service, e.key.ServicePort}] = true
+			views[e.view] = true
 			observers[e.obs.MachineID+"/"+e.obs.RunID] = true
 		}
 		if len(views) < 2 || len(observers) < 2 {

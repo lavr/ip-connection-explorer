@@ -545,10 +545,13 @@ func (r *runner) file() *checkpoint.File {
 		Host: checkpoint.Host{Hostname: r.info.Hostname, MachineID: r.info.MachineID, BootID: r.info.BootID,
 			Kernel: r.info.Kernel, Addresses: st.Addresses},
 		Run: checkpoint.Run{RunID: r.runID, StartedAt: r.started, CheckpointAt: now(), Generation: r.gen,
-			Params: r.cfg.Params},
+			Params: r.cfg.Params, NATView: checkpoint.NATViewHost},
 		Coverage:     st.Coverage,
 		Limits:       st.Limits,
 		Dependencies: st.Dependencies,
+	}
+	if r.cfg.OriginalNAT {
+		f.Run.NATView = checkpoint.NATViewOriginal
 	}
 	if r.lastOK != nil {
 		t := *r.lastOK

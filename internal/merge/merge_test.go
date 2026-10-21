@@ -162,3 +162,20 @@ func TestUnknownIsNotAConflict(t *testing.T) {
 		t.Fatalf("%+v", m.Conflicts)
 	}
 }
+
+func TestNATViewsOfOneHostAreNotRoleConflict(t *testing.T) {
+	orig := model.Tuple{Src: ep("192.0.2.30:50000"), Dst: ep("198.51.100.6:5432"), Proto: model.ProtoTCP}
+	reply := model.Tuple{Src: ep("198.51.100.6:5432"), Dst: ep("192.0.2.10:40000"), Proto: model.ProtoTCP}
+	old := known("ma", "r1", model.DirUnresolved, "192.0.2.30", "198.51.100.6", 5432, orig)
+	cur := known("ma", "r2", model.DirOutbound, "192.0.2.10", "198.51.100.6", 5432, orig)
+	for _, d := range []*model.Dependency{&old, &cur} {
+		d.Examples[0].Reply = reply
+	}
+	m, err := Merge([]*checkpoint.File{file("ma", "r1", 1, old), file("ma", "r2", 1, cur)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Conflicts) != 0 {
+		t.Fatalf("two NAT views of one connection reported as a role conflict: %+v", m.Conflicts)
+	}
+}

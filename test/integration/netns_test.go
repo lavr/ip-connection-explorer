@@ -228,10 +228,10 @@ func TestSNATRecordedFromHostAddress(t *testing.T) {
 	mustRun(t, "ip", "netns", "add", nsPod)
 	t.Cleanup(func() { exec.Command("ip", "netns", "del", nsPod).Run() })
 	mustRun(t, "ip", "link", "add", "veth-pod", "netns", nsPod, "type", "veth", "peer", "name", "veth-node", "netns", nsA)
-	nsRun(t, nsPod, "ip", "addr", "add", "10.233.70.5/24", "dev", "veth-pod")
+	nsRun(t, nsPod, "ip", "addr", "add", "198.18.70.5/24", "dev", "veth-pod")
 	nsRun(t, nsPod, "ip", "link", "set", "veth-pod", "up")
-	nsRun(t, nsPod, "ip", "route", "add", "default", "via", "10.233.70.1")
-	nsRun(t, nsA, "ip", "addr", "add", "10.233.70.1/24", "dev", "veth-node")
+	nsRun(t, nsPod, "ip", "route", "add", "default", "via", "198.18.70.1")
+	nsRun(t, nsA, "ip", "addr", "add", "198.18.70.1/24", "dev", "veth-node")
 	nsRun(t, nsA, "ip", "link", "set", "veth-node", "up")
 	nsRun(t, nsA, "sysctl", "-w", "net.ipv4.ip_forward=1")
 	cmd := exec.Command("ip", "netns", "exec", nsA, "nft", "-f", "-")
@@ -270,7 +270,7 @@ func TestSNATRecordedFromHostAddress(t *testing.T) {
 	if d.Key.Initiator.String() != "192.0.2.1" || d.Direction != model.DirOutbound || !has(d.Evidence, model.EvidenceSNAT) {
 		t.Errorf("key=%+v direction=%v evidence=%v", d.Key, d.Direction, d.Evidence)
 	}
-	if len(d.Examples) == 0 || d.Examples[0].Orig.Src.Addr.String() != "10.233.70.5" {
+	if len(d.Examples) == 0 || d.Examples[0].Orig.Src.Addr.String() != "198.18.70.5" {
 		t.Errorf("examples lost the pod address: %+v", d.Examples)
 	}
 }

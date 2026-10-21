@@ -14,7 +14,14 @@ import (
 	"github.com/lavr/ip-connection-explorer/internal/model"
 )
 
-const SchemaVersion = 1
+// SchemaVersion 2 added Run.NATView and the conntrack_snat evidence; version 1 files are still
+// read, as the original NAT view.
+const SchemaVersion = 2
+
+const (
+	NATViewHost     = "host"
+	NATViewOriginal = "original"
+)
 
 type Tool struct {
 	Version string `json:"version"`
@@ -36,6 +43,7 @@ type Run struct {
 	Generation               uint64            `json:"generation"`
 	LastSuccessfulCheckpoint *time.Time        `json:"last_successful_checkpoint,omitempty"`
 	Params                   map[string]string `json:"params"`
+	NATView                  string            `json:"nat_view,omitempty"`
 }
 
 type File struct {
@@ -73,11 +81,16 @@ func Read(path string) (*File, error) {
 	if err := ReadJSON(path, &f); err != nil {
 		return nil, err
 	}
-	if f.SchemaVersion != SchemaVersion {
+	if !Supported(f.SchemaVersion) {
 		return nil, fmt.Errorf("%s: unsupported schema_version %d", path, f.SchemaVersion)
+	}
+	if f.Run.NATView == "" {
+		f.Run.NATView = NATViewOriginal
 	}
 	return &f, nil
 }
+
+func Supported(v int) bool { return v == 1 || v == SchemaVersion }
 
 // ReadJSON decodes any gzip-compressed JSON document.
 func ReadJSON(path string, v any) error {

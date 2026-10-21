@@ -286,8 +286,11 @@ correct. Review the table before you send it anywhere.
   source a firewall beyond the host sees, and it keeps short-lived pod addresses out of the
   table. It applies only when conntrack marks the entry as source-NATed, the destination is
   unchanged and neither original endpoint is local; anything with DNAT (ClusterIP, NodePort)
-  keeps the original view and is `unresolved`. `--nat-view original` records every connection
-  from its original source, as before 0.3.
+  keeps the original view, and its direction follows the usual rules. `--nat-view original`
+  records every connection from its original source, as before 0.3. Checkpoints record the
+  view; `merge` compares roles across views on the original tuple, so mixing them is not a
+  conflict. Checkpoints from 0.3 use schema 2, which 0.2 cannot read: upgrade `merge` and
+  `report` first, they still read the old files.
 - Absence of traffic during the run is not proof that a dependency does not exist.
 
 ## Tested on
