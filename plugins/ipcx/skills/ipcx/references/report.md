@@ -4,7 +4,7 @@
 
 | Command | Flags (defaults) |
 |---|---|
-| `ipcx collect` | `--duration 7d`, `--state-dir /var/lib/ipcx`, `--checkpoint 2m`, `--dump-every 5m`, `--snapshot-every 60s`, `--raw`, `--go-memory-limit SIZE`, `--max-active 200000`, `--max-known 100000`, `--max-unknown 50000`, `--allow-no-events`, `--check`, `--cpuprofile FILE`, `--memprofile FILE`, beta: `--prometheus-exporter.listen ADDR`, `--prometheus-exporter.path /metrics`, `--prometheus-exporter.ttl 24h`, `--prometheus-exporter.max-series 10000` |
+| `ipcx collect` | `--duration 7d`, `--state-dir /var/lib/ipcx`, `--checkpoint 2m`, `--dump-every 5m`, `--snapshot-every 60s`, `--raw`, `--nat-view host`, `--go-memory-limit SIZE`, `--max-active 200000`, `--max-known 100000`, `--max-unknown 50000`, `--allow-no-events`, `--check`, `--cpuprofile FILE`, `--memprofile FILE`, beta: `--prometheus-exporter.listen ADDR`, `--prometheus-exporter.path /metrics`, `--prometheus-exporter.ttl 24h`, `--prometheus-exporter.max-series 10000` |
 | `ipcx merge FILE... -o OUT` | |
 | `ipcx report FILE` | `--format csv\|json` (csv), `--role known\|unknown\|all` (all), `--min-confidence low\|medium\|high` (low), `--include-hidden` (off) |
 
@@ -45,6 +45,7 @@ One row per dependency and observer run.
 | `listen_contradicts` | the supposed client listens on that port: role is `conflict` |
 | `port_range` | UDP from a local ephemeral port: weak hint |
 | `udp_bound` | UDP from outside to a bound, non-ephemeral local port: weak hint of a server |
+| `conntrack_snat` | left through source NAT to a host address; recorded from that address, original source in the example tuples |
 | `none` | nothing decides the role: `unknown` |
 
 ## Limitations to state in any result

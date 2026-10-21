@@ -213,3 +213,64 @@ func TestCollectInNamespaces(t *testing.T) {
 		t.Errorf("events sysctl %d", f.Coverage.EventsSysctl)
 	}
 }
+
+const nsPod = "ipcx-pod"
+
+// TestSNATRecordedFromHostAddress routes a "pod" namespace through nsA, which masquerades it
+// behind 192.0.2.1, the way a Kubernetes node or a Docker host does.
+func TestSNATRecordedFromHostAddress(t *testing.T) {
+	ipcx, helper := os.Getenv("IPCX_BIN"), os.Getenv("IPCX_HELPER")
+	if ipcx == "" || helper == "" {
+		t.Fatal("IPCX_BIN and IPCX_HELPER must point to built binaries")
+	}
+	setupNamespaces(t)
+	exec.Command("ip", "netns", "del", nsPod).Run()
+	mustRun(t, "ip", "netns", "add", nsPod)
+	t.Cleanup(func() { exec.Command("ip", "netns", "del", nsPod).Run() })
+	mustRun(t, "ip", "link", "add", "veth-pod", "netns", nsPod, "type", "veth", "peer", "name", "veth-node", "netns", nsA)
+	nsRun(t, nsPod, "ip", "addr", "add", "198.18.70.5/24", "dev", "veth-pod")
+	nsRun(t, nsPod, "ip", "link", "set", "veth-pod", "up")
+	nsRun(t, nsPod, "ip", "route", "add", "default", "via", "198.18.70.1")
+	nsRun(t, nsA, "ip", "addr", "add", "198.18.70.1/24", "dev", "veth-node")
+	nsRun(t, nsA, "ip", "link", "set", "veth-node", "up")
+	nsRun(t, nsA, "sysctl", "-w", "net.ipv4.ip_forward=1")
+	cmd := exec.Command("ip", "netns", "exec", nsA, "nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(`table ip ipcxnat {
+	chain post { type nat hook postrouting priority 100; oifname "veth-a" masquerade; }
+}
+`)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("nft nat: %v\n%s", err, out)
+	}
+
+	tmp := t.TempDir()
+	state := filepath.Join(tmp, "state")
+	start(t, nsB, helper, "tcp-server", ":5432", filepath.Join(tmp, "tcp.ready"))
+	waitFile(t, filepath.Join(tmp, "tcp.ready"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	collector := exec.CommandContext(ctx, "ip", "netns", "exec", nsA, ipcx, "collect",
+		"--duration", "1h", "--checkpoint", "1s", "--dump-every", "2s", "--snapshot-every", "1s", "--state-dir", state)
+	collector.Stderr = os.Stderr
+	if err := collector.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitFile(t, filepath.Join(state, ".ipcx.lock"))
+	waitUntil(t, "first checkpoint", func() bool { return latest(state) != nil })
+	nsRun(t, nsPod, helper, "tcp-client", "192.0.2.2:5432")
+	var d *model.Dependency
+	waitUntil(t, "masqueraded dependency", func() bool {
+		d = find(latest(state), model.ProtoTCP, "192.0.2.2", 5432)
+		return d != nil
+	})
+	collector.Process.Signal(syscall.SIGTERM)
+	collector.Wait()
+
+	if d.Key.Initiator.String() != "192.0.2.1" || d.Direction != model.DirOutbound || !has(d.Evidence, model.EvidenceSNAT) {
+		t.Errorf("key=%+v direction=%v evidence=%v", d.Key, d.Direction, d.Evidence)
+	}
+	if len(d.Examples) == 0 || d.Examples[0].Orig.Src.Addr.String() != "198.18.70.5" {
+		t.Errorf("examples lost the pod address: %+v", d.Examples)
+	}
+}

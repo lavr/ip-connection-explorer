@@ -32,6 +32,9 @@ func (m *Machine) OnFinish(fn func(Labels, time.Time)) { m.onFinish = fn }
 // checkpoint. Classification, active flows and tombstones work as before.
 func (m *Machine) DisableReport() { m.noReport = true }
 
+// KeepOriginalNAT turns off the host SNAT view: masqueraded flows keep their original source.
+func (m *Machine) KeepOriginalNAT() { m.originalNAT = true }
+
 func (m *Machine) ActiveLabels() map[Labels]int {
 	out := map[Labels]int{}
 	for _, f := range m.active {
@@ -53,7 +56,7 @@ func (m *Machine) Health() Health {
 // labelsFor uses the initiator and service for a known role, and the original orientation
 // otherwise, with a local ephemeral port collapsed to 0 as in the report.
 func (m *Machine) labelsFor(f *activeFlow) Labels {
-	o := f.ct.Orig
+	o := f.view
 	l := Labels{Role: f.inf.Status, Direction: f.dir, Proto: o.Proto}
 	if f.inf.Status == model.RoleKnown {
 		l.Src = model.NormalizeAddr(f.inf.Initiator.Addr)

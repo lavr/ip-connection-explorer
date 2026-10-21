@@ -1,6 +1,6 @@
 {
   "name": "ipcx",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Map a Linux host's real network dependencies with ipcx and turn the report into a firewall request.",
   "author": {
     "name": "Sergey Lavrinenko"

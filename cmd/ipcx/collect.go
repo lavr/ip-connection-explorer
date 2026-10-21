@@ -29,6 +29,7 @@ func runCollect(args []string, stdout, stderr io.Writer) int {
 	dumpEvery := fs.String("dump-every", "5m", "interval between full conntrack dumps")
 	snapEvery := fs.String("snapshot-every", "60s", "interval between socket and process snapshots")
 	raw := fs.Bool("raw", false, "also keep a rotated raw journal of events and dump markers")
+	natView := fs.String("nat-view", "host", "how to record a connection masqueraded behind a host address: host (from that address) or original (from the source before NAT)")
 	memLimit := fs.String("go-memory-limit", "", "soft Go runtime memory limit (e.g. 512MiB); not a cap on RSS")
 	maxActive := fs.Int("max-active", 200000, "maximum active flows")
 	maxKnown := fs.Int("max-known", 100000, "maximum known dependencies")
@@ -47,6 +48,10 @@ func runCollect(args []string, stdout, stderr io.Writer) int {
 	var err error
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr, "ipcx collect: unexpected argument %q\n", fs.Arg(0))
+		return exitUsage
+	}
+	if *natView != "host" && *natView != "original" {
+		fmt.Fprintln(stderr, "ipcx collect: --nat-view must be host or original")
 		return exitUsage
 	}
 	var dur time.Duration
@@ -129,6 +134,7 @@ func runCollect(args []string, stdout, stderr io.Writer) int {
 			MaxProcesses: 5, MaxExamples: 3},
 		AllowNoEvents: *allowNoEvents,
 		NoCheckpoint:  noCheckpoint,
+		OriginalNAT:   *natView == "original",
 		Version:       version,
 		Commit:        commit,
 		Params:        map[string]string{},

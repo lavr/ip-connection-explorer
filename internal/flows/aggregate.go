@@ -92,7 +92,7 @@ func (a *agg) mergeFlow(f *activeFlow, lim Limits) {
 		a.conf = f.inf.Confidence
 	}
 	if a.orient == nil && f.inf.Status != model.RoleKnown {
-		o := f.ct.Orig
+		o := f.view
 		a.orient = &o
 	}
 	a.procsTrunc = a.procsTrunc || f.procsTrunc

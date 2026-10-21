@@ -140,6 +140,8 @@ type activeFlow struct {
 	procs      map[procKey]bool
 	procOrder  []procKey
 	procsTrunc bool
+	view       model.Tuple
+	snat       bool
 	inf        Inference
 	dir        model.Direction
 	key        model.DepKey
@@ -179,6 +181,7 @@ type Machine struct {
 
 	onFinish       func(Labels, time.Time)
 	noReport       bool
+	originalNAT    bool
 	gapsOpened     uint64
 	activeRejected uint64
 
@@ -420,6 +423,8 @@ func (m *Machine) observe(f *activeFlow, c CTFlow, src model.Source, at time.Tim
 	f.ct.ID = c.ID
 	f.ct.SeenReply = f.ct.SeenReply || c.SeenReply
 	f.ct.Assured = f.ct.Assured || c.Assured
+	f.ct.SrcNAT = f.ct.SrcNAT || c.SrcNAT
+	f.ct.DstNAT = f.ct.DstNAT || c.DstNAT
 	if c.HasTCPState {
 		f.ct.TCPState, f.ct.HasTCPState = c.TCPState, true
 		f.tcp[c.TCPState] = true
@@ -457,8 +462,20 @@ func (m *Machine) reclassifyAll(at time.Time) {
 
 func (m *Machine) reclassify(f *activeFlow, now time.Time) {
 	m.reclassifications++
-	prevInf, prevDir := f.inf, f.dir
-	f.inf = Classify(f.ct, f.ev, m.listen, m, m.host, now)
+	prevInf, prevDir, prevView, prevSNAT := f.inf, f.dir, f.view, f.snat
+	f.view, f.snat = m.project(f.ct)
+	c := f.ct
+	c.Orig = f.view
+	// The translated source port is not a socket of this host, so its listeners say nothing
+	// about the role; the destination of a projected flow is never local either.
+	li := m.listen
+	if f.snat {
+		li = nil
+	}
+	f.inf = Classify(c, f.ev, li, m, m.host, now)
+	if f.snat {
+		f.inf.Evidence = append(f.inf.Evidence, model.EvidenceSNAT)
+	}
 	f.dir = m.direction(f)
 	f.labels = m.labelsFor(f)
 	if m.noReport {
@@ -472,7 +489,7 @@ func (m *Machine) reclassify(f *activeFlow, now time.Time) {
 		// Keep the flow on its previous record, with the inference that record was built
 		// from, rather than dropping what was already observed.
 		if f.attached {
-			f.inf, f.dir = prevInf, prevDir
+			f.inf, f.dir, f.view, f.snat = prevInf, prevDir, prevView, prevSNAT
 		}
 		return
 	}
@@ -518,8 +535,22 @@ func (m *Machine) release(key model.DepKey) {
 // cannot exhaust the space for dependencies with a known role.
 func unknownBudget(k model.DepKey) bool { return k.Status != model.RoleKnown }
 
+// project returns the tuple a flow is recorded under. A connection masqueraded behind a host
+// address is recorded from that address: after source NAT the original direction is the
+// inverse of the reply tuple, and with the destination unchanged only the source moved.
+func (m *Machine) project(c CTFlow) (model.Tuple, bool) {
+	o, r := c.Orig, c.Reply
+	if m.originalNAT || !c.SrcNAT || c.DstNAT || m.Has(o.Src.Addr) || m.Has(o.Dst.Addr) ||
+		!m.Has(r.Dst.Addr) || normEP(o.Dst) != normEP(r.Src) {
+		return o, false
+	}
+	v := o
+	v.Src = r.Dst
+	return v, true
+}
+
 func (m *Machine) direction(f *activeFlow) model.Direction {
-	o, r := f.ct.Orig, f.ct.Reply
+	o, r := f.view, f.ct.Reply
 	if !m.Has(o.Src.Addr) && !m.Has(o.Dst.Addr) {
 		if m.Has(r.Src.Addr) || m.Has(r.Dst.Addr) {
 			return model.DirUnresolved
@@ -541,7 +572,7 @@ func (m *Machine) direction(f *activeFlow) model.Direction {
 }
 
 func (m *Machine) keyFor(f *activeFlow) model.DepKey {
-	o := f.ct.Orig
+	o := f.view
 	scope := "global"
 	for _, a := range []netip.Addr{o.Src.Addr, o.Dst.Addr} {
 		if s := model.ScopeFor(a, m.host.MachineID); s != "global" {

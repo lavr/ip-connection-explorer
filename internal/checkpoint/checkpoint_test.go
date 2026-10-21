@@ -22,7 +22,7 @@ func sample(gen uint64) *File {
 		Tool:          Tool{Version: "v0.0.0", Commit: "abc"},
 		Host: Host{Hostname: "h1", MachineID: "m1", BootID: "b1", Kernel: "6.8.0",
 			Addresses: []flows.AddrSeen{{Addr: netip.MustParseAddr("192.0.2.10"), FirstSeen: t0, LastSeen: t0}}},
-		Run:      Run{RunID: "r1", StartedAt: t0, CheckpointAt: t0.Add(time.Minute), Generation: gen, Params: map[string]string{"duration": "7d"}},
+		Run:      Run{RunID: "r1", StartedAt: t0, CheckpointAt: t0.Add(time.Minute), Generation: gen, Params: map[string]string{"duration": "7d"}, NATView: NATViewHost},
 		Coverage: model.Coverage{NetNS: "current", EventsSysctl: 1, Intervals: []model.Interval{{From: t0}}, Counters: map[string]uint64{"x": 1}},
 		Limits:   model.LimitsState{MaxActive: 10},
 		Dependencies: []model.Dependency{{
@@ -56,13 +56,30 @@ func TestRoundtrip(t *testing.T) {
 func TestRejectsOtherSchema(t *testing.T) {
 	dir := t.TempDir()
 	f := sample(1)
-	f.SchemaVersion = 2
+	f.SchemaVersion = 3
 	p, err := Write(dir, f)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Read(p); err == nil {
-		t.Fatal("schema 2 accepted")
+		t.Fatal("schema 3 accepted")
+	}
+}
+
+func TestReadsSchema1AsOriginalNATView(t *testing.T) {
+	f := sample(1)
+	f.SchemaVersion = 1
+	f.Run.NATView = ""
+	p, err := Write(t.TempDir(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := Read(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Run.NATView != NATViewOriginal {
+		t.Fatalf("nat view %q", back.Run.NATView)
 	}
 }
 

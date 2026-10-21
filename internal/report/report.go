@@ -37,6 +37,9 @@ func Load(path string) (*Input, error) {
 		if err := checkpoint.ReadJSON(path, &m); err != nil {
 			return nil, err
 		}
+		if !checkpoint.Supported(m.SchemaVersion) {
+			return nil, fmt.Errorf("%s: unsupported schema_version %d", path, m.SchemaVersion)
+		}
 		return &Input{Runs: m.Runs, Dependencies: m.Dependencies, Conflicts: m.Conflicts}, nil
 	}
 	f, err := checkpoint.Read(path)

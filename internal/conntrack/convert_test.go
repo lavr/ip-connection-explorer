@@ -26,6 +26,17 @@ func TestConvertNormalizesAndFlags(t *testing.T) {
 	}
 }
 
+func TestConvertNATFlags(t *testing.T) {
+	f := ct.NewFlow(6, ct.StatusSrcNAT|ct.StatusDstNATDone, netip.MustParseAddr("198.18.70.5"), netip.MustParseAddr("198.51.100.5"), 40000, 443, 60, 0)
+	if c := Convert(f); !c.SrcNAT || c.DstNAT {
+		t.Fatalf("%+v", c)
+	}
+	f.Status = ct.StatusDstNAT
+	if c := Convert(f); c.SrcNAT || !c.DstNAT {
+		t.Fatalf("%+v", c)
+	}
+}
+
 func TestConvertICMP(t *testing.T) {
 	f := ct.NewFlow(1, 0, netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("198.51.100.5"), 0, 0, 30, 0)
 	f.TupleOrig.Proto.ICMPv4, f.TupleOrig.Proto.ICMPType, f.TupleOrig.Proto.ICMPCode = true, 8, 0
