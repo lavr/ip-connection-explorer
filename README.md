@@ -100,6 +100,33 @@ ipcx merge host-a-*.json.gz host-b-*.json.gz -o all.json.gz
 ipcx report all.json.gz --format csv > dependencies.csv
 ```
 
+`merge` and `report` print a summary to stderr; the table goes to stdout:
+
+```
+$ ipcx merge app-01-*.json.gz db-01-*.json.gz -o all.json.gz
+merged 2 runs, 7 dependencies, 0 conflicts into all.json.gz
+$ ipcx report all.json.gz --format csv > dependencies.csv
+rows: 5; hidden: 2 (loopback 2, forwarded 0, unresolved 0); incomplete runs: 0; truncated runs: 0; conflicts: 0
+```
+
+Here `app-01` (192.0.2.10) serves HTTP on port 8080 and uses a database on `db-01`
+(192.0.2.20), an external API and a resolver. Rows of `dependencies.csv`, with the empty
+`icmp_*` and `endpoint_*` columns left out for width:
+
+| role_status | proto | initiator | service | service_port | observer | direction | confidence | evidence | processes | flows_observed |
+|---|---|---|---|---|---|---|---|---|---|---|
+| known | tcp | 203.0.113.7 | 192.0.2.10 | 8080 | app-01 | inbound | high | conntrack_new+listen | java@192.0.2.10:8080 | 52310 |
+| known | tcp | 192.0.2.10 | 192.0.2.20 | 5432 | app-01 | outbound | medium | conntrack_original | java@192.0.2.10 | 12 |
+| known | tcp | 192.0.2.10 | 192.0.2.20 | 5432 | db-01 | inbound | high | conntrack_original+listen | postgres@192.0.2.20:5432 | 12 |
+| known | tcp | 192.0.2.10 | 198.51.100.5 | 443 | app-01 | outbound | high | conntrack_new | java@192.0.2.10 | 1834 |
+| known | udp | 192.0.2.10 | 198.51.100.53 | 53 | app-01 | outbound | low | port_range | java@192.0.2.10 | 40112 |
+
+The database connection appears twice, once from each end. Its pool was open before the
+collector started, so `app-01` saw no NEW event and only assumes the direction (`medium`), while
+`db-01` confirms the server side with its listening socket (`high`). The firewall rules to
+request follow from the `known` rows: `203.0.113.7 -> 192.0.2.10:8080/tcp`,
+`192.0.2.10 -> 192.0.2.20:5432/tcp` and so on.
+
 Run a week rather than a day: weekly jobs and backups are exactly what a short window misses.
 
 Checkpoints and raw journals contain host names, machine IDs, addresses and process names.
