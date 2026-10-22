@@ -56,8 +56,23 @@ beta exporter, or one of the agents above if you need bytes, latency or process 
 
 ## Install
 
-Download the archive for your architecture from the
-[releases page](https://github.com/lavr/ip-connection-explorer/releases), check it and unpack:
+On Linux (amd64 or arm64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lavr/ip-connection-explorer/main/install.sh | bash
+```
+
+[`install.sh`](install.sh) downloads the latest release for your architecture, checks it against
+`checksums.txt` and installs `ipcx` to `/usr/local/bin`, using `sudo` when it needs to. Set
+`IPCX_VERSION=0.3.0` to pin a release and `IPCX_INSTALL_DIR` to install elsewhere:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lavr/ip-connection-explorer/main/install.sh \
+  | IPCX_VERSION=0.3.0 bash
+```
+
+To do it by hand, download the archive for your architecture and `checksums.txt` from the
+[releases page](https://github.com/lavr/ip-connection-explorer/releases), then:
 
 ```sh
 sha256sum --check --ignore-missing checksums.txt
