@@ -5,8 +5,18 @@
 Releases: https://github.com/lavr/ip-connection-explorer/releases, archives for `linux_amd64`
 and `linux_arm64` plus `checksums.txt`. The binary is static.
 
+With internet access on the host, the install script picks the latest release and the
+architecture, checks the checksum and installs to `/usr/local/bin` (with `sudo` if needed):
+
 ```sh
-V=0.1.1   # take the latest release
+curl -fsSL https://raw.githubusercontent.com/lavr/ip-connection-explorer/main/install.sh | bash
+ipcx --version
+```
+
+`IPCX_VERSION=X.Y.Z` pins a release, `IPCX_INSTALL_DIR` changes the target directory. By hand:
+
+```sh
+V=X.Y.Z   # the release to install
 curl -fsSLO https://github.com/lavr/ip-connection-explorer/releases/download/$V/ipcx_${V}_linux_amd64.tar.gz
 curl -fsSLO https://github.com/lavr/ip-connection-explorer/releases/download/$V/checksums.txt
 sha256sum --check --ignore-missing checksums.txt
